@@ -6,6 +6,7 @@ const BALL_RADIUS = 0.25;
 const TABLE_WIDTH = 10;
 const TABLE_LENGTH = 20;
 const MAX_POWER = 12; // Maximum impulse power applied to the white ball
+const MAX_SPIN_RADIUS = BALL_RADIUS * 0.75; // Clamps dot to 75% of the ball's radius
 
 // --- Animation Loop ---
 const timeStep = 1 / 60;
@@ -15,11 +16,16 @@ let audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
 // --- Globals ---
 let scene, camera, renderer, world;
-let balls = []; // Will store objects like: { mesh: THREE.Mesh, body: CANNON.Body }
+let balls = [];
 let whiteBallBody;
-let aimingLine;
+let mainLine, cueDeflectionLine, objectBallLine, ghostBall;
+let isMoving = false;
 let cameraAngle = 0;
+let cameraPitch = 0.6; // Vertical camera angle
 let cameraDistance = 6;
+let strikeDot; // Visual marker for where the cue hits
+let spinX = 0; // Left/Right spin (English)
+let spinY = 0; // Top/Bottom spin
 
 // Controls
 let isAiming = false;
@@ -66,7 +72,30 @@ function init() {
     // 3. Build the World
     buildTable(physicsMaterials);
     buildBalls(physicsMaterials.ballMat);
-    createAimingLine();
+    
+    // NEW: Trajectory Visuals
+    const lineMat = new THREE.LineDashedMaterial({ color: 0xffffff, dashSize: 0.2, gapSize: 0.1 });
+    const objLineMat = new THREE.LineDashedMaterial({ color: 0xffa500, dashSize: 0.2, gapSize: 0.1 }); // Orange for object ball
+
+    mainLine = new THREE.Line(new THREE.BufferGeometry(), lineMat);
+    cueDeflectionLine = new THREE.Line(new THREE.BufferGeometry(), lineMat);
+    objectBallLine = new THREE.Line(new THREE.BufferGeometry(), objLineMat);
+
+    const ghostGeo = new THREE.SphereGeometry(BALL_RADIUS, 16, 16);
+    const ghostMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.4, wireframe: true });
+    ghostBall = new THREE.Mesh(ghostGeo, ghostMat);
+
+    scene.add(mainLine);
+    scene.add(cueDeflectionLine);
+    scene.add(objectBallLine);
+    scene.add(ghostBall);
+    
+    // Create the Strike Dot
+    const dotGeo = new THREE.SphereGeometry(0.015, 16, 16);
+    const dotMat = new THREE.MeshBasicMaterial({ color: 0x8d0000, depthTest: false }); // depthTest: false forces it to render on top
+    strikeDot = new THREE.Mesh(dotGeo, dotMat);
+    strikeDot.renderOrder = 999;
+    scene.add(strikeDot);
 
     // 4. Input Listeners
     window.addEventListener('resize', onWindowResize);
@@ -75,6 +104,7 @@ function init() {
     window.addEventListener('mousemove', onMouseMove);
     window.addEventListener('mouseup', onMouseUp);
     window.addEventListener('wheel', onMouseWheel, { passive: false });
+    window.addEventListener('keydown', onKeyDown);
 }
 
 // Procedural impact sound generator
@@ -151,13 +181,110 @@ function playImpactSound(impactStrength, x, y, z) {
     noise.stop(ctx.currentTime + duration);
 }
 
-function createAimingLine() {
-    const points = [new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -10)];
-    const geometry = new THREE.BufferGeometry().setFromPoints(points);
-    const material = new THREE.LineDashedMaterial({ color: 0xffffff, dashSize: 0.3, gapSize: 0.2 });
-    aimingLine = new THREE.Line(geometry, material);
-    aimingLine.computeLineDistances();
-    scene.add(aimingLine);
+function updateTrajectory() {
+    if (isMoving) {
+        ghostBall.visible = mainLine.visible = cueDeflectionLine.visible = objectBallLine.visible = false;
+        return;
+    }
+
+    ghostBall.visible = mainLine.visible = true;
+
+    const start = whiteBallBody.position;
+    const dir = new THREE.Vector3(-Math.sin(cameraAngle), 0, -Math.cos(cameraAngle)).normalize();
+
+    let minT = Infinity;
+    let hitType = 'none'; 
+    let hitObjPos = null;
+    let hitNormal = new THREE.Vector3();
+
+    // 1. Math-based Sphere Cast against all other balls
+    for (const ball of balls) {
+        if (ball.body === whiteBallBody) continue;
+        
+        const bPos = ball.body.position;
+        const L = new THREE.Vector3(bPos.x - start.x, bPos.y - start.y, bPos.z - start.z);
+        const tca = L.dot(dir);
+        
+        if (tca < 0) continue; // Ball is behind the aim direction
+
+        const d2 = L.lengthSq() - tca * tca;
+        const radius2 = (BALL_RADIUS * 2) ** 2; // Hitbox is 2x radius (cue ball + object ball)
+        
+        if (d2 > radius2) continue; // Ray misses the expanded hitbox
+
+        const thc = Math.sqrt(radius2 - d2);
+        const t0 = tca - thc; // Distance to impact
+        
+        if (t0 > 0 && t0 < minT) {
+            minT = t0;
+            hitType = 'ball';
+            hitObjPos = new THREE.Vector3(bPos.x, bPos.y, bPos.z);
+        }
+    }
+
+    // 2. Raycast against Cushions (Offset by ball radius)
+    if (dir.x < 0) {
+        const t = (-TABLE_WIDTH/2 + BALL_RADIUS - start.x) / dir.x;
+        if (t > 0 && t < minT) { minT = t; hitType = 'cushion'; hitNormal.set(1,0,0); }
+    } else if (dir.x > 0) {
+        const t = (TABLE_WIDTH/2 - BALL_RADIUS - start.x) / dir.x;
+        if (t > 0 && t < minT) { minT = t; hitType = 'cushion'; hitNormal.set(-1,0,0); }
+    }
+
+    if (dir.z < 0) {
+        const t = (-TABLE_LENGTH/2 + BALL_RADIUS - start.z) / dir.z;
+        if (t > 0 && t < minT) { minT = t; hitType = 'cushion'; hitNormal.set(0,0,1); }
+    } else if (dir.z > 0) {
+        const t = (TABLE_LENGTH/2 - BALL_RADIUS - start.z) / dir.z;
+        if (t > 0 && t < minT) { minT = t; hitType = 'cushion'; hitNormal.set(0,0,-1); }
+    }
+
+    // 3. Draw Main Line and Ghost Ball
+    const startVec = new THREE.Vector3(start.x, start.y, start.z);
+    const impactPos = startVec.clone().add(dir.clone().multiplyScalar(minT));
+    ghostBall.position.copy(impactPos);
+
+    mainLine.geometry.setFromPoints([startVec, impactPos]);
+    mainLine.computeLineDistances(); // Required for dashed lines to render properly
+
+    // 4. Calculate and Draw Deflection Lines
+    if (hitType === 'ball') {
+        cueDeflectionLine.visible = true;
+        objectBallLine.visible = true;
+
+        // Object ball trajectory (straight line from impact pos through object ball center)
+        const objDir = hitObjPos.clone().sub(impactPos).normalize();
+        const objEnd = hitObjPos.clone().add(objDir.multiplyScalar(4)); 
+        objectBallLine.geometry.setFromPoints([hitObjPos, objEnd]);
+        objectBallLine.computeLineDistances();
+
+        // Cue ball deflection (Tangent to the impact normal)
+        const normal = hitObjPos.clone().sub(impactPos).normalize();
+        const dot = dir.dot(normal);
+        let cueDir = dir.clone().sub(normal.clone().multiplyScalar(dot)).normalize();
+        
+        // Prevent graphical glitch on dead-on shots
+        if (cueDir.lengthSq() < 0.01) cueDir = dir.clone(); 
+
+        const cueEnd = impactPos.clone().add(cueDir.multiplyScalar(2));
+        cueDeflectionLine.geometry.setFromPoints([impactPos, cueEnd]);
+        cueDeflectionLine.computeLineDistances();
+
+    } else if (hitType === 'cushion') {
+        cueDeflectionLine.visible = true;
+        objectBallLine.visible = false;
+
+        // Reflection formula: R = V - 2(V dot N)N
+        const dot = dir.dot(hitNormal);
+        const cueDir = dir.clone().sub(hitNormal.clone().multiplyScalar(2 * dot)).normalize();
+        
+        const cueEnd = impactPos.clone().add(cueDir.multiplyScalar(4));
+        cueDeflectionLine.geometry.setFromPoints([impactPos, cueEnd]);
+        cueDeflectionLine.computeLineDistances();
+    } else {
+        // Shooting into the void (shouldn't happen with full cushions)
+        cueDeflectionLine.visible = objectBallLine.visible = false;
+    }
 }
 
 function setupPhysicsMaterials() {
@@ -168,7 +295,7 @@ function setupPhysicsMaterials() {
     // Ball hitting Ball (High bounce, low friction)
     const ballBallContact = new CANNON.ContactMaterial(ballMat, ballMat, { friction: 0.1, restitution: 0.9 });
     // Ball hitting Cloth (Medium friction, low bounce)
-    const ballTableContact = new CANNON.ContactMaterial(ballMat, tableMat, { friction: 0.3, restitution: 0.1 });
+    const ballTableContact = new CANNON.ContactMaterial(ballMat, tableMat, { friction: 0.4, restitution: 0.1 });
     // Ball hitting Cushion (Low friction, decent bounce)
     const ballCushionContact = new CANNON.ContactMaterial(ballMat, cushionMat, { friction: 0.1, restitution: 0.8 });
 
@@ -348,8 +475,8 @@ function buildBalls(ballPhysMat) {
             shape: new CANNON.Sphere(BALL_RADIUS),
             position: new CANNON.Vec3(x, BALL_RADIUS, z),
             material: ballPhysMat,
-            linearDamping: 0.4,  // Simulates friction dragging the ball to a stop
-            angularDamping: 0.4  // Slows down the rolling spin
+            linearDamping: 0.5,  // Simulates friction dragging the ball to a stop
+            angularDamping: 0.1  // Slows down the rolling spin
         });
         world.addBody(body);
 
@@ -384,9 +511,9 @@ function buildBalls(ballPhysMat) {
     const pattern = [
         [c.r],
         [c.y, c.r],
-        [c.y, c.b, c.y],
-        [c.r, c.y, c.r, c.r],
-        [c.y, c.r, c.y, c.r, c.y]
+        [c.r, c.b, c.y],
+        [c.y, c.r, c.y, c.r],
+        [c.r, c.y, c.r, c.y, c.y]
     ];
 
     const startZ = -TABLE_LENGTH * 0.25;
@@ -406,7 +533,7 @@ function buildBalls(ballPhysMat) {
 function onMouseDown(e) {
     if (e.button === 2) { 
         isAiming = true;
-    } else if (e.button === 0 && aimingLine.visible) { 
+    } else if (e.button === 0 && !isMoving) { 
         isCharging = true;
         startDragY = e.clientY;
         powerBarContainer.style.display = 'block';
@@ -416,11 +543,14 @@ function onMouseDown(e) {
 function onMouseMove(e) {
     if (isAiming) {
         cameraAngle -= e.movementX * 0.005;
+        cameraPitch += e.movementY * 0.005;
+        // Clamp the vertical angle so it doesn't go under the table or directly overhead
+        cameraPitch = Math.max(0.1, Math.min(cameraPitch, 1.4)); 
     }
 
     if (isCharging) {
         const dragDist = Math.max(0, e.clientY - startDragY); 
-        chargePower = Math.min(dragDist * 0.05, MAX_POWER); // Cap power at MAX_POWER
+        chargePower = Math.min(dragDist * 0.05, MAX_POWER);
         
         const powerPercentage = (chargePower / MAX_POWER) * 100;
         if (chargePower > 0.5)
@@ -439,16 +569,28 @@ function onMouseUp(e) {
         powerBar.style.width = '0%';
         
         if (chargePower > 0.5) {
-            // Calculate force direction based on camera angle
             const forceX = -Math.sin(cameraAngle) * chargePower;
             const forceZ = -Math.cos(cameraAngle) * chargePower;
+            const forceY = 0; // Keep horizontal so we don't smash the ball into the baize
             
-            // Apply impulse to the center of the white ball
+            // Calculate physics contact point relative to ball center
+            const localZ = Math.sqrt(Math.max(0, BALL_RADIUS**2 - spinX**2 - spinY**2));
+            const contactOffsetX = spinX * Math.cos(cameraAngle) + localZ * Math.sin(cameraAngle);
+            const contactOffsetY = spinY;
+            const contactOffsetZ = -spinX * Math.sin(cameraAngle) + localZ * Math.cos(cameraAngle);
+
+            const contactPoint = new CANNON.Vec3(contactOffsetX, contactOffsetY, contactOffsetZ);
+
             whiteBallBody.applyImpulse(
-                new CANNON.Vec3(forceX, 0, forceZ),
-                new CANNON.Vec3(0, 0, 0)
+                new CANNON.Vec3(forceX, forceY, forceZ),
+                contactPoint
             );
+            
             chargePower = 0;
+            
+            // RESET SPIN FOR THE NEXT SHOT
+            spinX = 0;
+            spinY = 0;
         }
     }
 }
@@ -457,6 +599,26 @@ function onMouseWheel(e) {
     e.preventDefault();
     cameraDistance += e.deltaY * 0.005;
     cameraDistance = Math.max(2, Math.min(cameraDistance, 18));
+}
+
+function onKeyDown(e) {
+    // Only allow spin changes if the player is aiming and the ball is still
+    if (isMoving) return;
+
+    const spinSpeed = 0.01;
+    
+    if (e.key === 'ArrowUp' || e.key === 'w') spinY += spinSpeed;
+    if (e.key === 'ArrowDown' || e.key === 's') spinY -= spinSpeed;
+    if (e.key === 'ArrowLeft' || e.key === 'a') spinX -= spinSpeed;
+    if (e.key === 'ArrowRight' || e.key === 'd') spinX += spinSpeed;
+
+    // Clamp the spin to prevent impossible shots (cueing through the ball)
+    const currentRadius = Math.sqrt(spinX**2 + spinY**2);
+    if (currentRadius > MAX_SPIN_RADIUS) {
+        // Normalize the vector and multiply by our max radius
+        spinX = (spinX / currentRadius) * MAX_SPIN_RADIUS;
+        spinY = (spinY / currentRadius) * MAX_SPIN_RADIUS;
+    }
 }
 
 function onWindowResize() {
@@ -477,19 +639,30 @@ function animate() {
         ball.mesh.quaternion.copy(ball.body.quaternion);
     }
 
-    // Update Aiming Line
-    aimingLine.position.copy(whiteBallBody.position);
-    aimingLine.rotation.y = cameraAngle;
-    // Only show line if white ball is mostly still
-    aimingLine.visible = whiteBallBody.velocity.length() < 0.01;
+    // Sync Three.js visual meshes with Cannon.js rigid bodies
+    for (const ball of balls) {
+        ball.mesh.position.copy(ball.body.position);
+        ball.mesh.quaternion.copy(ball.body.quaternion);
+    }
 
-    // Update Camera Position
-    const camHeight = 3.5;
-    
-    // Camera chase logic
-    camera.position.x = whiteBallBody.position.x + Math.sin(cameraAngle) * cameraDistance;
-    camera.position.z = whiteBallBody.position.z + Math.cos(cameraAngle) * cameraDistance;
-    camera.position.y = cameraDistance * 0.65; 
+    // Determine if balls are rolling
+    isMoving = whiteBallBody.velocity.length() > 0.01;
+
+    // Update trajectory math
+    updateTrajectory();
+
+    // NEW: Calculate Strike Point Offset
+    const normalizedPitch = (cameraPitch - 0.1) / 1.3; 
+
+    // Calculate dot position on the ball surface facing the camera
+    const dirX = Math.sin(cameraAngle);
+    const dirZ = Math.cos(cameraAngle);
+
+
+    // NEW: Update Camera Position using Spherical Coordinates
+    camera.position.x = whiteBallBody.position.x + Math.sin(cameraAngle) * Math.cos(cameraPitch) * cameraDistance;
+    camera.position.y = whiteBallBody.position.y + Math.sin(cameraPitch) * cameraDistance;
+    camera.position.z = whiteBallBody.position.z + Math.cos(cameraAngle) * Math.cos(cameraPitch) * cameraDistance; 
     camera.lookAt(whiteBallBody.position.x, whiteBallBody.position.y, whiteBallBody.position.z);
 
     // Update audio listener to camera position
