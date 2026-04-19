@@ -39,8 +39,7 @@ const powerBar = document.getElementById('power-bar');
 init();
 animate();
 
-function init() {
-    // 1. Three.js Scene Setup
+function setupThreeJS() {
     scene = new THREE.Scene();
     camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
     
@@ -48,7 +47,9 @@ function init() {
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.shadowMap.enabled = true;
     document.body.appendChild(renderer.domElement);
+}
 
+function setupLights() {
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
     scene.add(ambientLight);
 
@@ -60,20 +61,9 @@ function init() {
     dirLight.shadow.camera.top = 15;
     dirLight.shadow.camera.bottom = -15;
     scene.add(dirLight);
+}
 
-    // 2. Cannon-es Physics World Setup
-    world = new CANNON.World({
-        gravity: new CANNON.Vec3(0, -9.82, 0), // Real world gravity
-    });
-
-    // Materials dictate how objects interact (friction & bounciness)
-    const physicsMaterials = setupPhysicsMaterials();
-
-    // 3. Build the World
-    buildTable(physicsMaterials);
-    buildBalls(physicsMaterials.ballMat);
-    
-    // NEW: Trajectory Visuals
+function setupTrajectoryVisuals() {
     const lineMat = new THREE.LineDashedMaterial({ color: 0xffffff, dashSize: 0.2, gapSize: 0.1 });
     const objLineMat = new THREE.LineDashedMaterial({ color: 0xffa500, dashSize: 0.2, gapSize: 0.1 }); // Orange for object ball
 
@@ -81,21 +71,47 @@ function init() {
     cueDeflectionLine = new THREE.Line(new THREE.BufferGeometry(), lineMat);
     objectBallLine = new THREE.Line(new THREE.BufferGeometry(), objLineMat);
 
-    const ghostGeo = new THREE.SphereGeometry(BALL_RADIUS, 16, 16);
-    const ghostMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.4, wireframe: true });
+    // NEW: Solid, semi-transparent ghost ball
+    const ghostGeo = new THREE.SphereGeometry(BALL_RADIUS, 32, 32);
+    const ghostMat = new THREE.MeshStandardMaterial({ 
+        color: 0xffffff, 
+        transparent: true, 
+        opacity: 0.35, 
+        roughness: 0.1,
+        depthWrite: false // Prevents the transparent sphere from hiding lines behind it
+    });
     ghostBall = new THREE.Mesh(ghostGeo, ghostMat);
 
     scene.add(mainLine);
     scene.add(cueDeflectionLine);
     scene.add(objectBallLine);
     scene.add(ghostBall);
-    
-    // Create the Strike Dot
+}
+
+function setupStrikeDot() {
     const dotGeo = new THREE.SphereGeometry(0.015, 16, 16);
-    const dotMat = new THREE.MeshBasicMaterial({ color: 0x8d0000, depthTest: false }); // depthTest: false forces it to render on top
+    const dotMat = new THREE.MeshBasicMaterial({ color: 0x8d0000, depthTest: false }); 
     strikeDot = new THREE.Mesh(dotGeo, dotMat);
     strikeDot.renderOrder = 999;
     scene.add(strikeDot);
+}
+
+function init() {
+    // 1. Three.js Scene Setup
+    setupThreeJS();
+    setupLights();
+
+    // 2. Cannon-es Physics World Setup
+    world = new CANNON.World({
+        gravity: new CANNON.Vec3(0, -9.82, 0), // Real world gravity
+    });
+    const physicsMaterials = setupPhysicsMaterials();
+
+    // 3. Build the World
+    buildTable(physicsMaterials);
+    buildBalls(physicsMaterials.ballMat);
+    setupTrajectoryVisuals();
+    setupStrikeDot();
 
     // 4. Input Listeners
     window.addEventListener('resize', onWindowResize);
@@ -645,11 +661,30 @@ function animate() {
         ball.mesh.quaternion.copy(ball.body.quaternion);
     }
 
-    // Determine if balls are rolling
+    // Update Trajectory and Motion State
     isMoving = whiteBallBody.velocity.length() > 0.01;
-
-    // Update trajectory math
     updateTrajectory();
+
+    // Replace aimingLine.visible with !isMoving
+    if (!isMoving) {
+        strikeDot.visible = true;
+        
+        // Calculate the depth (Z) on the sphere's surface facing the camera
+        const localZ = Math.sqrt(Math.max(0, BALL_RADIUS**2 - spinX**2 - spinY**2));
+        
+        // Rotate local spin offset into world space based on camera yaw
+        const worldOffsetX = spinX * Math.cos(cameraAngle) + localZ * Math.sin(cameraAngle);
+        const worldOffsetY = spinY;
+        const worldOffsetZ = -spinX * Math.sin(cameraAngle) + localZ * Math.cos(cameraAngle);
+
+        strikeDot.position.set(
+            whiteBallBody.position.x + worldOffsetX,
+            whiteBallBody.position.y + worldOffsetY,
+            whiteBallBody.position.z + worldOffsetZ
+        );
+    } else {
+        strikeDot.visible = false;
+    }
 
     // NEW: Calculate Strike Point Offset
     const normalizedPitch = (cameraPitch - 0.1) / 1.3; 
