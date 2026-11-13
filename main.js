@@ -1,121 +1,421 @@
 import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
 import * as CANNON from 'https://unpkg.com/cannon-es@0.20.0/dist/cannon-es.js';
 
-// --- Configuration ---
 const BALL_RADIUS = 0.25;
 const TABLE_WIDTH = 10;
 const TABLE_LENGTH = 20;
-const MAX_POWER = 12; // Maximum impulse power applied to the white ball
-const MAX_SPIN_RADIUS = BALL_RADIUS * 0.75; // Clamps dot to 75% of the ball's radius
+const HALF_WIDTH = TABLE_WIDTH / 2;
+const HALF_LENGTH = TABLE_LENGTH / 2;
+const MAX_POWER = 12;
+const MAX_SPIN_RADIUS = BALL_RADIUS * 0.75;
+const FIXED_TIME_STEP = 1 / 120;
+const MAX_FRAME_DELTA = 0.05;
+const POCKET_CAPTURE_RADIUS = 0.67;
+const POCKET_DROP_DEPTH = 0.9;
+const CUSHION_HEIGHT = 0.68;
+const CUSHION_THICKNESS = 0.72;
 
-// --- Animation Loop ---
-const timeStep = 1 / 60;
-
-// --- Audio ---
-let audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-
-// --- Globals ---
-let scene, camera, renderer, world;
+let scene, camera, renderer, world, audioCtx;
 let balls = [];
 let whiteBallBody;
-let mainLine, cueDeflectionLine, objectBallLine, ghostBall;
+let mainLine, cueDeflectionLine, objectBallLine, ghostBall, strikeDot;
 let isMoving = false;
 let cameraAngle = 0;
-let cameraPitch = 0.6; // Vertical camera angle
-let cameraDistance = 6;
-let strikeDot; // Visual marker for where the cue hits
-let spinX = 0; // Left/Right spin (English)
-let spinY = 0; // Top/Bottom spin
-
-// Controls
+let cameraPitch = 0.6;
+let cameraDistance = 12;
+let spinX = 0;
+let spinY = 0;
 let isAiming = false;
 let isCharging = false;
 let startDragY = 0;
 let chargePower = 0;
+let accumulator = 0;
+let lastFrameTime = 0;
+let pockets = [];
 
 const powerBarContainer = document.getElementById('power-bar-container');
 const powerBar = document.getElementById('power-bar');
 
 init();
-animate();
+requestAnimationFrame(animate);
+
+function init() {
+    setupThreeJS();
+    setupLights();
+    world = new CANNON.World({
+        gravity: new CANNON.Vec3(0, -9.82, 0),
+        allowSleep: true
+    });
+    world.broadphase = new CANNON.SAPBroadphase(world);
+    world.solver.iterations = 12;
+    world.solver.tolerance = 0.001;
+
+    const materials = setupPhysicsMaterials();
+    buildTable(materials);
+    buildBalls(materials.ballMat);
+    setupTrajectoryVisuals();
+    setupStrikeDot();
+    setupInput();
+    window.addEventListener('pointerdown', resumeAudio, { once: true });
+}
 
 function setupThreeJS() {
     scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x111315);
     camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
-    
     renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
     document.body.appendChild(renderer.domElement);
 }
 
 function setupLights() {
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
-    scene.add(ambientLight);
+    scene.add(new THREE.HemisphereLight(0xdde8ff, 0x26301f, 1.1));
+    const key = new THREE.DirectionalLight(0xffffff, 1.6);
+    key.position.set(-5, 14, 7);
+    key.castShadow = true;
+    key.shadow.mapSize.set(2048, 2048);
+    key.shadow.camera.left = -13;
+    key.shadow.camera.right = 13;
+    key.shadow.camera.top = 23;
+    key.shadow.camera.bottom = -23;
+    scene.add(key);
+    const fill = new THREE.PointLight(0xffd8a0, 35, 35);
+    fill.position.set(5, 8, -4);
+    scene.add(fill);
+}
 
-    const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
-    dirLight.position.set(5, 15, 5);
-    dirLight.castShadow = true;
-    dirLight.shadow.camera.left = -15;
-    dirLight.shadow.camera.right = 15;
-    dirLight.shadow.camera.top = 15;
-    dirLight.shadow.camera.bottom = -15;
-    scene.add(dirLight);
+function resumeAudio() {
+    if (!audioCtx) {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (AudioContextClass) audioCtx = new AudioContextClass();
+    }
+    if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+}
+
+function setupPhysicsMaterials() {
+    const ballMat = new CANNON.Material('ball');
+    const tableMat = new CANNON.Material('table');
+    const cushionMat = new CANNON.Material('cushion');
+    world.addContactMaterial(new CANNON.ContactMaterial(ballMat, ballMat, {
+        friction: 0.08, restitution: 0.92
+    }));
+    world.addContactMaterial(new CANNON.ContactMaterial(ballMat, tableMat, {
+        friction: 0.38, restitution: 0.05
+    }));
+    world.addContactMaterial(new CANNON.ContactMaterial(ballMat, cushionMat, {
+        friction: 0.12, restitution: 0.78
+    }));
+    return { ballMat, tableMat, cushionMat };
+}
+
+function createBaizeMaterial(size = 512, repeat = 4) {
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#07501f';
+    ctx.fillRect(0, 0, size, size);
+    for (let i = 0; i < 5000; i++) {
+        const x = Math.random() * size;
+        const y = Math.random() * size;
+        const length = 1 + Math.random() * 3;
+        const alpha = 0.025 + Math.random() * 0.075;
+        ctx.strokeStyle = 'rgba(150,210,150,' + alpha + ')';
+        ctx.lineWidth = 0.5;
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(x + length, y + (Math.random() - 0.5) * 0.7);
+        ctx.stroke();
+    }
+    const map = new THREE.CanvasTexture(canvas);
+    map.colorSpace = THREE.SRGBColorSpace;
+    map.wrapS = map.wrapT = THREE.RepeatWrapping;
+    map.repeat.set(repeat, repeat);
+    map.anisotropy = renderer.capabilities.getMaxAnisotropy();
+    return new THREE.MeshStandardMaterial({ map, roughness: 0.92, metalness: 0 });
+}
+
+function buildTable(mats) {
+    const wood = new THREE.MeshStandardMaterial({ color: 0x392316, roughness: 0.34 });
+    const cushionVisual = new THREE.MeshStandardMaterial({ color: 0x24402d, roughness: 0.72 });
+    const black = new THREE.MeshStandardMaterial({ color: 0x050606, roughness: 0.98 });
+    const brass = new THREE.MeshStandardMaterial({ color: 0xb18a4b, metalness: 0.65, roughness: 0.3 });
+
+    const cabinet = new THREE.Mesh(
+        new THREE.BoxGeometry(TABLE_WIDTH + 2, 0.8, TABLE_LENGTH + 2), wood
+    );
+    cabinet.position.y = -0.48;
+    cabinet.castShadow = cabinet.receiveShadow = true;
+    scene.add(cabinet);
+
+    const cloth = new THREE.Mesh(
+        new THREE.PlaneGeometry(TABLE_WIDTH, TABLE_LENGTH), createBaizeMaterial()
+    );
+    cloth.rotation.x = -Math.PI / 2;
+    cloth.position.y = 0.012;
+    cloth.receiveShadow = true;
+    scene.add(cloth);
+
+    buildBedCollisionTiles(mats.tableMat);
+    createPockets(black, brass);
+
+    // Split cushions leave unobstructed openings at the four corners and
+    // the two side pockets. Their visual and Cannon shapes share transforms.
+    const sideIntervals = [[-9.25, -0.72], [0.72, 9.25]];
+    for (const sx of [-1, 1]) {
+        for (const interval of sideIntervals) {
+            addRailSegment(
+                sx * (HALF_WIDTH + 0.34), (interval[0] + interval[1]) / 2,
+                CUSHION_THICKNESS, interval[1] - interval[0], 0,
+                cushionVisual, mats.cushionMat
+            );
+        }
+    }
+    for (const sz of [-1, 1]) {
+        addRailSegment(0, sz * (HALF_LENGTH + 0.34), 8.5, CUSHION_THICKNESS,
+            0, cushionVisual, mats.cushionMat);
+    }
+    addPocketJaws(cushionVisual, mats.cushionMat);
+
+    // Top rails, wooden cabinet rails and brass sights.
+    addVisualRail(0, -HALF_LENGTH - 0.77, TABLE_WIDTH + 1.55, 0.46, wood);
+    addVisualRail(0, HALF_LENGTH + 0.77, TABLE_WIDTH + 1.55, 0.46, wood);
+    addVisualRail(-HALF_WIDTH - 0.77, 0, 0.46, TABLE_LENGTH + 1.55, wood);
+    addVisualRail(HALF_WIDTH + 0.77, 0, 0.46, TABLE_LENGTH + 1.55, wood);
+
+    for (const x of [-3.2, -1.6, 0, 1.6, 3.2]) {
+        addSight(x, -HALF_LENGTH - 0.77, brass);
+        addSight(x, HALF_LENGTH + 0.77, brass);
+    }
+    for (const z of [-8, -6, -4, -2, 2, 4, 6, 8]) {
+        addSight(-HALF_WIDTH - 0.77, z, brass);
+        addSight(HALF_WIDTH + 0.77, z, brass);
+    }
+
+    // Baulk line, D and table spots.
+    const marking = new THREE.MeshBasicMaterial({ color: 0xe7e1c8 });
+    const baulkZ = HALF_LENGTH * 0.5;
+    const line = new THREE.Mesh(new THREE.PlaneGeometry(TABLE_WIDTH, 0.025), marking);
+    line.rotation.x = -Math.PI / 2;
+    line.position.set(0, 0.022, baulkZ);
+    scene.add(line);
+
+    const curve = new THREE.EllipseCurve(0, baulkZ, 1, 1, -Math.PI / 2, Math.PI / 2, false, 0);
+    const dPoints = curve.getPoints(48).map(p => new THREE.Vector3(p.x, 0.023, p.y));
+    scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(dPoints),
+        new THREE.LineBasicMaterial({ color: 0xe7e1c8 })));
+    addTableSpot(0, -HALF_LENGTH * 0.25, marking);
+    addTableSpot(0, HALF_LENGTH * 0.25, marking);
+}
+
+function buildBedCollisionTiles(tableMat) {
+    // Tile the playing surface around six rectangular apertures. The cloth
+    // remains a single plane, but Cannon has no collision surface in a pocket.
+    const xSegments = [[-5, -4.25], [-4.25, 4.25], [4.25, 5]];
+    const zSegments = [
+        [-10, -9.25], [-9.25, -0.72], [-0.72, 0.72],
+        [0.72, 9.25], [9.25, 10]
+    ];
+    for (let xi = 0; xi < xSegments.length; xi++) {
+        for (let zi = 0; zi < zSegments.length; zi++) {
+            if (xi !== 1 && (zi === 0 || zi === 2 || zi === 4)) continue;
+            const [x0, x1] = xSegments[xi];
+            const [z0, z1] = zSegments[zi];
+            const width = x1 - x0;
+            const length = z1 - z0;
+            const body = new CANNON.Body({ mass: 0, material: tableMat });
+            body.addShape(new CANNON.Box(new CANNON.Vec3(width / 2, 0.25, length / 2)));
+            body.position.set((x0 + x1) / 2, -0.25, (z0 + z1) / 2);
+            world.addBody(body);
+        }
+    }
+}
+
+function createPockets(black, brass) {
+    pockets = [
+        { id: 'top-left', x: -4.78, z: -9.78 },
+        { id: 'top-right', x: 4.78, z: -9.78 },
+        { id: 'middle-left', x: -4.78, z: 0 },
+        { id: 'middle-right', x: 4.78, z: 0 },
+        { id: 'bottom-left', x: -4.78, z: 9.78 },
+        { id: 'bottom-right', x: 4.78, z: 9.78 }
+    ];
+    for (const pocket of pockets) {
+        const mouth = new THREE.Mesh(new THREE.CylinderGeometry(0.78, 0.72, 0.18, 40), black);
+        mouth.position.set(pocket.x, -0.065, pocket.z);
+        scene.add(mouth);
+        const throat = new THREE.Mesh(new THREE.CylinderGeometry(0.58, 0.66, 0.42, 40), black);
+        throat.position.set(pocket.x, -0.31, pocket.z);
+        scene.add(throat);
+        const lip = new THREE.Mesh(new THREE.TorusGeometry(0.67, 0.045, 8, 40), brass);
+        lip.rotation.x = Math.PI / 2;
+        lip.position.set(pocket.x, 0.018, pocket.z);
+        scene.add(lip);
+    }
+}
+
+function addRailSegment(x, z, width, length, angle, material, physicsMaterial) {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(width, CUSHION_HEIGHT, length), material);
+    mesh.position.set(x, CUSHION_HEIGHT / 2, z);
+    mesh.rotation.y = angle;
+    mesh.castShadow = mesh.receiveShadow = true;
+    scene.add(mesh);
+    const body = new CANNON.Body({ mass: 0, material: physicsMaterial });
+    body.addShape(new CANNON.Box(new CANNON.Vec3(width / 2, CUSHION_HEIGHT / 2, length / 2)));
+    body.position.set(x, CUSHION_HEIGHT / 2, z);
+    body.quaternion.setFromEuler(0, angle, 0);
+    world.addBody(body);
+}
+
+function addPocketJaws(material, physicsMaterial) {
+    const jaws = [];
+    // Corner jaws: diagonal noses on both sides of each corner mouth.
+    for (const sx of [-1, 1]) {
+        for (const sz of [-1, 1]) {
+            jaws.push(
+                { x: sx * 4.42, z: sz * 9.42, angle: sx * sz * Math.PI / 4 },
+                { x: sx * 4.42, z: sz * 9.42, angle: -sx * sz * Math.PI / 4 }
+            );
+        }
+    }
+    // Side-pocket jaws, either side of the opening.
+    for (const sx of [-1, 1]) {
+        jaws.push(
+            { x: sx * 4.42, z: -0.72, angle: sx * Math.PI / 4 },
+            { x: sx * 4.42, z: 0.72, angle: -sx * Math.PI / 4 }
+        );
+    }
+    for (const jaw of jaws) {
+        const width = 0.88, height = 0.48, depth = 0.24;
+        const mesh = new THREE.Mesh(new THREE.BoxGeometry(width, height, depth), material);
+        mesh.position.set(jaw.x, height / 2, jaw.z);
+        mesh.rotation.y = jaw.angle;
+        mesh.castShadow = true;
+        scene.add(mesh);
+        const body = new CANNON.Body({ mass: 0, material: physicsMaterial });
+        body.addShape(new CANNON.Box(new CANNON.Vec3(width / 2, height / 2, depth / 2)));
+        body.position.set(jaw.x, height / 2, jaw.z);
+        body.quaternion.setFromEuler(0, jaw.angle, 0);
+        world.addBody(body);
+    }
+}
+
+function addVisualRail(x, z, width, length, material) {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(width, 0.32, length), material);
+    mesh.position.set(x, 0.58, z);
+    mesh.castShadow = mesh.receiveShadow = true;
+    scene.add(mesh);
+}
+
+function addSight(x, z, material) {
+    const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.055, 12, 8), material);
+    mesh.position.set(x, 0.75, z);
+    mesh.scale.y = 0.45;
+    scene.add(mesh);
+}
+
+function addTableSpot(x, z, material) {
+    const spot = new THREE.Mesh(new THREE.CircleGeometry(0.045, 16), material);
+    spot.rotation.x = -Math.PI / 2;
+    spot.position.set(x, 0.024, z);
+    scene.add(spot);
+}
+
+function buildBalls(ballPhysMat) {
+    const geometry = new THREE.SphereGeometry(BALL_RADIUS, 32, 24);
+    const colours = { red: 0xc5222b, yellow: 0xf2c32e, black: 0x111111, white: 0xf4f1e8 };
+    function createBall(type, x, z) {
+        const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({
+            color: colours[type], roughness: 0.2, metalness: 0.02
+        }));
+        mesh.castShadow = true;
+        scene.add(mesh);
+        const body = new CANNON.Body({
+            mass: 0.17,
+            shape: new CANNON.Sphere(BALL_RADIUS),
+            position: new CANNON.Vec3(x, BALL_RADIUS, z),
+            material: ballPhysMat,
+            linearDamping: 0.12,
+            angularDamping: 0.04,
+            allowSleep: true,
+            sleepSpeedLimit: 0.08,
+            sleepTimeLimit: 0.5
+        });
+        world.addBody(body);
+        body.addEventListener('collide', event => {
+            const impact = Math.abs(event.contact.getImpactVelocityAlongNormal());
+            playImpactSound(impact, body.position);
+        });
+        const ball = { type, mesh, body, potted: false };
+        balls.push(ball);
+        return body;
+    }
+
+    whiteBallBody = createBall('white', 0, TABLE_LENGTH * 0.25);
+    const pattern = [
+        ['red'],
+        ['yellow', 'red'],
+        ['red', 'black', 'yellow'],
+        ['yellow', 'red', 'yellow', 'red'],
+        ['red', 'yellow', 'red', 'yellow', 'yellow']
+    ];
+    const spacing = BALL_RADIUS * 2.01;
+    const startZ = -TABLE_LENGTH * 0.25;
+    for (let row = 0; row < pattern.length; row++) {
+        const rowZ = startZ - row * spacing * Math.sqrt(3) / 2;
+        const startX = -(row * spacing) / 2;
+        for (let col = 0; col < pattern[row].length; col++) {
+            createBall(pattern[row][col], startX + col * spacing, rowZ);
+        }
+    }
+}
+
+function playImpactSound(strength, position) {
+    if (!audioCtx || strength < 0.03) return;
+    const now = audioCtx.currentTime;
+    const duration = Math.min(0.18, 0.045 + strength * 0.025);
+    const master = audioCtx.createGain();
+    master.gain.setValueAtTime(Math.min(0.25, 0.035 + strength * 0.035), now);
+    master.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+    master.connect(audioCtx.destination);
+    const oscillator = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    oscillator.type = 'triangle';
+    oscillator.frequency.setValueAtTime(650 + Math.min(strength, 10) * 95, now);
+    gain.gain.setValueAtTime(0.5, now);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+    oscillator.connect(gain).connect(master);
+    oscillator.start(now);
+    oscillator.stop(now + duration);
 }
 
 function setupTrajectoryVisuals() {
-    const lineMat = new THREE.LineDashedMaterial({ color: 0xffffff, dashSize: 0.2, gapSize: 0.1 });
-    const objLineMat = new THREE.LineDashedMaterial({ color: 0xffa500, dashSize: 0.2, gapSize: 0.1 }); // Orange for object ball
-
-    mainLine = new THREE.Line(new THREE.BufferGeometry(), lineMat);
-    cueDeflectionLine = new THREE.Line(new THREE.BufferGeometry(), lineMat);
-    objectBallLine = new THREE.Line(new THREE.BufferGeometry(), objLineMat);
-
-    // NEW: Solid, semi-transparent ghost ball
-    const ghostGeo = new THREE.SphereGeometry(BALL_RADIUS, 32, 32);
-    const ghostMat = new THREE.MeshStandardMaterial({ 
-        color: 0xffffff, 
-        transparent: true, 
-        opacity: 0.35, 
-        roughness: 0.1,
-        depthWrite: false // Prevents the transparent sphere from hiding lines behind it
-    });
-    ghostBall = new THREE.Mesh(ghostGeo, ghostMat);
-
-    scene.add(mainLine);
-    scene.add(cueDeflectionLine);
-    scene.add(objectBallLine);
-    scene.add(ghostBall);
+    const lineMaterial = new THREE.LineDashedMaterial({ color: 0xffffff, dashSize: 0.2, gapSize: 0.1 });
+    const objectMaterial = new THREE.LineDashedMaterial({ color: 0xffa500, dashSize: 0.2, gapSize: 0.1 });
+    mainLine = new THREE.Line(new THREE.BufferGeometry(), lineMaterial);
+    cueDeflectionLine = new THREE.Line(new THREE.BufferGeometry(), lineMaterial);
+    objectBallLine = new THREE.Line(new THREE.BufferGeometry(), objectMaterial);
+    ghostBall = new THREE.Mesh(new THREE.SphereGeometry(BALL_RADIUS, 24, 16),
+        new THREE.MeshStandardMaterial({
+            color: 0xffffff, transparent: true, opacity: 0.25,
+            roughness: 0.2, depthWrite: false
+        }));
+    scene.add(mainLine, cueDeflectionLine, objectBallLine, ghostBall);
 }
 
 function setupStrikeDot() {
-    const dotGeo = new THREE.SphereGeometry(0.015, 16, 16);
-    const dotMat = new THREE.MeshBasicMaterial({ color: 0x8d0000, depthTest: false }); 
-    strikeDot = new THREE.Mesh(dotGeo, dotMat);
+    strikeDot = new THREE.Mesh(new THREE.SphereGeometry(0.015, 12, 8),
+        new THREE.MeshBasicMaterial({ color: 0x8d0000, depthTest: false }));
     strikeDot.renderOrder = 999;
     scene.add(strikeDot);
 }
 
-function init() {
-    // 1. Three.js Scene Setup
-    setupThreeJS();
-    setupLights();
-
-    // 2. Cannon-es Physics World Setup
-    world = new CANNON.World({
-        gravity: new CANNON.Vec3(0, -9.82, 0), // Real world gravity
-    });
-    const physicsMaterials = setupPhysicsMaterials();
-
-    // 3. Build the World
-    buildTable(physicsMaterials);
-    buildBalls(physicsMaterials.ballMat);
-    setupTrajectoryVisuals();
-    setupStrikeDot();
-
-    // 4. Input Listeners
+function setupInput() {
     window.addEventListener('resize', onWindowResize);
-    renderer.domElement.addEventListener('contextmenu', e => e.preventDefault());
+    renderer.domElement.addEventListener('contextmenu', event => event.preventDefault());
     renderer.domElement.addEventListener('mousedown', onMouseDown);
     window.addEventListener('mousemove', onMouseMove);
     window.addEventListener('mouseup', onMouseUp);
@@ -123,517 +423,211 @@ function init() {
     window.addEventListener('keydown', onKeyDown);
 }
 
-// Procedural impact sound generator
-function playImpactSound(impactStrength, x, y, z) {
-    if (impactStrength < 0.03) return;
-
-    const ctx = audioCtx;
-
-    // MUCH quieter overall
-    const duration = 0.06 + impactStrength * 0.03;
-
-    const panner = ctx.createPanner();
-    panner.panningModel = "HRTF";
-    panner.positionX.value = x;
-    panner.positionY.value = y;
-    panner.positionZ.value = z;
-
-    // GLOBAL GAIN (now subtle)
-    const master = ctx.createGain();
-    master.gain.value = 0.15 + impactStrength * 0.35;  // was ~1.5
-    master.connect(panner).connect(ctx.destination);
-
-    // BROADBAND noise
-    const noise = ctx.createBufferSource();
-    const nbuf = ctx.createBuffer(1, ctx.sampleRate * duration, ctx.sampleRate);
-    const d = nbuf.getChannelData(0);
-    for (let i = 0; i < d.length; i++) d[i] = (Math.random()*2 - 1);
-    noise.buffer = nbuf;
-
-    // Helper for subtle resonances
-    function mode(freq, q, gainValue, decay) {
-        const bp = ctx.createBiquadFilter();
-        bp.type = "bandpass";
-        bp.frequency.value = freq;
-        bp.Q.value = q;
-
-        const g = ctx.createGain();
-
-        // soft attack
-        const now = ctx.currentTime;
-        g.gain.setValueAtTime(0.00001, now);
-        g.gain.exponentialRampToValueAtTime(gainValue, now + 0.002);
-        g.gain.exponentialRampToValueAtTime(0.0001, now + decay);
-
-        bp.connect(g).connect(master);
-        return bp;
-    }
-
-    const impact = impactStrength;
-
-    // MUCH QUIETER + LESS Q
-    const res1 = mode(430 + impact * 40, 0.7, 0.08 + impact * 0.1, duration);
-    const res2 = mode(900 + impact * 60, 0.9, 0.05 + impact * 0.08, duration*0.8);
-    const res3 = mode(1500 + impact * 80, 1.0, 0.03 + impact * 0.06, duration*0.6);
-
-    noise.connect(res1);
-    noise.connect(res2);
-    noise.connect(res3);
-
-    // Very quiet transient
-    const click = ctx.createOscillator();
-    const cg = ctx.createGain();
-
-    click.type = "square";
-    click.frequency.setValueAtTime(2800, ctx.currentTime);
-    cg.gain.setValueAtTime(0.002 + impact*0.008, ctx.currentTime);
-    cg.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime+0.01);
-
-    click.connect(cg).connect(master);
-    click.start();
-    click.stop(ctx.currentTime + 0.02);
-
-    noise.start();
-    noise.stop(ctx.currentTime + duration);
-}
-
-function updateTrajectory() {
-    if (isMoving) {
-        ghostBall.visible = mainLine.visible = cueDeflectionLine.visible = objectBallLine.visible = false;
-        return;
-    }
-
-    ghostBall.visible = mainLine.visible = true;
-
-    const start = whiteBallBody.position;
-    const dir = new THREE.Vector3(-Math.sin(cameraAngle), 0, -Math.cos(cameraAngle)).normalize();
-
-    let minT = Infinity;
-    let hitType = 'none'; 
-    let hitObjPos = null;
-    let hitNormal = new THREE.Vector3();
-
-    // 1. Math-based Sphere Cast against all other balls
-    for (const ball of balls) {
-        if (ball.body === whiteBallBody) continue;
-        
-        const bPos = ball.body.position;
-        const L = new THREE.Vector3(bPos.x - start.x, bPos.y - start.y, bPos.z - start.z);
-        const tca = L.dot(dir);
-        
-        if (tca < 0) continue; // Ball is behind the aim direction
-
-        const d2 = L.lengthSq() - tca * tca;
-        const radius2 = (BALL_RADIUS * 2) ** 2; // Hitbox is 2x radius (cue ball + object ball)
-        
-        if (d2 > radius2) continue; // Ray misses the expanded hitbox
-
-        const thc = Math.sqrt(radius2 - d2);
-        const t0 = tca - thc; // Distance to impact
-        
-        if (t0 > 0 && t0 < minT) {
-            minT = t0;
-            hitType = 'ball';
-            hitObjPos = new THREE.Vector3(bPos.x, bPos.y, bPos.z);
-        }
-    }
-
-    // 2. Raycast against Cushions (Offset by ball radius)
-    if (dir.x < 0) {
-        const t = (-TABLE_WIDTH/2 + BALL_RADIUS - start.x) / dir.x;
-        if (t > 0 && t < minT) { minT = t; hitType = 'cushion'; hitNormal.set(1,0,0); }
-    } else if (dir.x > 0) {
-        const t = (TABLE_WIDTH/2 - BALL_RADIUS - start.x) / dir.x;
-        if (t > 0 && t < minT) { minT = t; hitType = 'cushion'; hitNormal.set(-1,0,0); }
-    }
-
-    if (dir.z < 0) {
-        const t = (-TABLE_LENGTH/2 + BALL_RADIUS - start.z) / dir.z;
-        if (t > 0 && t < minT) { minT = t; hitType = 'cushion'; hitNormal.set(0,0,1); }
-    } else if (dir.z > 0) {
-        const t = (TABLE_LENGTH/2 - BALL_RADIUS - start.z) / dir.z;
-        if (t > 0 && t < minT) { minT = t; hitType = 'cushion'; hitNormal.set(0,0,-1); }
-    }
-
-    // 3. Draw Main Line and Ghost Ball
-    const startVec = new THREE.Vector3(start.x, start.y, start.z);
-    const impactPos = startVec.clone().add(dir.clone().multiplyScalar(minT));
-    ghostBall.position.copy(impactPos);
-
-    mainLine.geometry.setFromPoints([startVec, impactPos]);
-    mainLine.computeLineDistances(); // Required for dashed lines to render properly
-
-    // 4. Calculate and Draw Deflection Lines
-    if (hitType === 'ball') {
-        cueDeflectionLine.visible = true;
-        objectBallLine.visible = true;
-
-        // Object ball trajectory (straight line from impact pos through object ball center)
-        const objDir = hitObjPos.clone().sub(impactPos).normalize();
-        const objEnd = hitObjPos.clone().add(objDir.multiplyScalar(4)); 
-        objectBallLine.geometry.setFromPoints([hitObjPos, objEnd]);
-        objectBallLine.computeLineDistances();
-
-        // Cue ball deflection (Tangent to the impact normal)
-        const normal = hitObjPos.clone().sub(impactPos).normalize();
-        const dot = dir.dot(normal);
-        let cueDir = dir.clone().sub(normal.clone().multiplyScalar(dot)).normalize();
-        
-        // Prevent graphical glitch on dead-on shots
-        if (cueDir.lengthSq() < 0.01) cueDir = dir.clone(); 
-
-        const cueEnd = impactPos.clone().add(cueDir.multiplyScalar(2));
-        cueDeflectionLine.geometry.setFromPoints([impactPos, cueEnd]);
-        cueDeflectionLine.computeLineDistances();
-
-    } else if (hitType === 'cushion') {
-        cueDeflectionLine.visible = true;
-        objectBallLine.visible = false;
-
-        // Reflection formula: R = V - 2(V dot N)N
-        const dot = dir.dot(hitNormal);
-        const cueDir = dir.clone().sub(hitNormal.clone().multiplyScalar(2 * dot)).normalize();
-        
-        const cueEnd = impactPos.clone().add(cueDir.multiplyScalar(4));
-        cueDeflectionLine.geometry.setFromPoints([impactPos, cueEnd]);
-        cueDeflectionLine.computeLineDistances();
-    } else {
-        // Shooting into the void (shouldn't happen with full cushions)
-        cueDeflectionLine.visible = objectBallLine.visible = false;
-    }
-}
-
-function setupPhysicsMaterials() {
-    const ballMat = new CANNON.Material('ball');
-    const tableMat = new CANNON.Material('table');
-    const cushionMat = new CANNON.Material('cushion');
-
-    // Ball hitting Ball (High bounce, low friction)
-    const ballBallContact = new CANNON.ContactMaterial(ballMat, ballMat, { friction: 0.1, restitution: 0.9 });
-    // Ball hitting Cloth (Medium friction, low bounce)
-    const ballTableContact = new CANNON.ContactMaterial(ballMat, tableMat, { friction: 0.4, restitution: 0.1 });
-    // Ball hitting Cushion (Low friction, decent bounce)
-    const ballCushionContact = new CANNON.ContactMaterial(ballMat, cushionMat, { friction: 0.1, restitution: 0.8 });
-
-    world.addContactMaterial(ballBallContact);
-    world.addContactMaterial(ballTableContact);
-    world.addContactMaterial(ballCushionContact);
-
-    return { ballMat, tableMat, cushionMat };
-}
-
-function createBaizeMaterial(size = 512, repeat = 4) {
-    // --- Color / diffuse ---
-    const canvas = document.createElement('canvas');
-    canvas.width = canvas.height = size;
-    const ctx = canvas.getContext('2d');
-
-    // base green
-    ctx.fillStyle = '#054215';
-    ctx.fillRect(0, 0, size, size);
-
-    // directional fibers
-    const fiberCount = 4000;
-    for (let i = 0; i < fiberCount; i++) {
-        const x = Math.random() * size;
-        const y = Math.random() * size;
-        const length = Math.random() * 2 + 1;
-        const angle = (Math.random() - 0.5) * 0.3; // mostly vertical
-        const alpha = Math.random() * 0.15;
-
-        ctx.strokeStyle = `rgba(0,80,20,${alpha})`;
-        ctx.beginPath();
-        ctx.moveTo(x, y);
-        ctx.lineTo(x + length * Math.cos(angle), y + length * Math.sin(angle));
-        ctx.stroke();
-    }
-
-    // slight random noise overlay
-    const imgData = ctx.getImageData(0, 0, size, size);
-    const data = imgData.data;
-    for (let i = 0; i < data.length; i += 4) {
-        const rand = (Math.random() - 0.5) * 15;
-        data[i] = data[i] + rand;
-        data[i+1] = data[i+1] + rand;
-        data[i+2] = data[i+2] + rand;
-    }
-    ctx.putImageData(imgData, 0, 0);
-
-    const map = new THREE.CanvasTexture(canvas);
-    map.wrapS = map.wrapT = THREE.RepeatWrapping;
-    map.repeat.set(repeat, repeat);
-    map.anisotropy = 16;
-
-    // --- Normal map ---
-    const normalCanvas = document.createElement('canvas');
-    normalCanvas.width = normalCanvas.height = size;
-    const nctx = normalCanvas.getContext('2d');
-    const nData = nctx.createImageData(size, size);
-
-    for (let i = 0; i < data.length; i += 4) {
-        const v = data[i] / 255 * 255;
-        nData.data[i] = 127 + v*0.25;      // X
-        nData.data[i+1] = 127 + v*0.25;    // Y
-        nData.data[i+2] = 255;             // Z
-        nData.data[i+3] = 255;
-    }
-    nctx.putImageData(nData, 0, 0);
-
-    const normalMap = new THREE.CanvasTexture(normalCanvas);
-    normalMap.wrapS = normalMap.wrapT = THREE.RepeatWrapping;
-    normalMap.repeat.set(repeat, repeat);
-    normalMap.anisotropy = 16;
-
-    // --- Roughness map (anisotropic fibers) ---
-    const roughCanvas = document.createElement('canvas');
-    roughCanvas.width = roughCanvas.height = size;
-    const rctx = roughCanvas.getContext('2d');
-    const roughData = rctx.createImageData(size, size);
-    for (let i = 0; i < data.length; i += 4) {
-        const v = data[i] / 255 * 255;
-        // directionally brighter fibers = slightly shinier
-        const rough = 0.6 + (v / 255) * 0.2; 
-        roughData.data[i] = rough * 255;
-        roughData.data[i+1] = rough * 255;
-        roughData.data[i+2] = rough * 255;
-        roughData.data[i+3] = 255;
-    }
-    rctx.putImageData(roughData, 0, 0);
-
-    const roughnessMap = new THREE.CanvasTexture(roughCanvas);
-    roughnessMap.wrapS = roughnessMap.wrapT = THREE.RepeatWrapping;
-    roughnessMap.repeat.set(repeat, repeat);
-    roughnessMap.anisotropy = 16;
-
-    // --- Compose material ---
-    const material = new THREE.MeshStandardMaterial({
-        map: map,
-        normalMap: normalMap,
-        roughnessMap: roughnessMap,
-        roughness: 0.7,
-        metalness: 0.05
-    });
-
-    return material;
-}
-
-function buildTable(mats) {
-    // A. Visual Table Bed
-    const bedGeo = new THREE.BoxGeometry(TABLE_WIDTH, 0.5, TABLE_LENGTH);
-    const baize = createBaizeMaterial(512, 4);
-    const bedMat = new THREE.MeshStandardMaterial({
-        map: baize.map,
-        normalMap: baize.normalMap,
-        roughness: 0.8,
-        metalness: 0.1
-    });
-
-    const bedMesh = new THREE.Mesh(
-        new THREE.BoxGeometry(TABLE_WIDTH, 0.5, TABLE_LENGTH),
-        bedMat
-    );
-    bedMesh.position.y = -0.25;
-    bedMesh.receiveShadow = true;
-    scene.add(bedMesh);
-
-    // B. Physics Table Bed (Static Plane)
-    const bedBody = new CANNON.Body({
-        mass: 0, // 0 mass makes it static
-        shape: new CANNON.Box(new CANNON.Vec3(TABLE_WIDTH / 2, 0.25, TABLE_LENGTH / 2)),
-        position: new CANNON.Vec3(0, -0.25, 0),
-        material: mats.tableMat
-    });
-    world.addBody(bedBody);
-
-    // C. Cushions
-    const cushionMatVis = new THREE.MeshStandardMaterial({ color: 0x5c3a21 });
-    const thickness = 1;
-    const height = 0.6; // Slightly higher than the ball radius
-
-    function addCushion(x, z, width, length) {
-        // Visual
-        const mesh = new THREE.Mesh(new THREE.BoxGeometry(width, height, length), cushionMatVis);
-        mesh.position.set(x, height / 2, z);
-        mesh.castShadow = true;
-        scene.add(mesh);
-
-        // Physics
-        const body = new CANNON.Body({
-            mass: 0,
-            shape: new CANNON.Box(new CANNON.Vec3(width / 2, height / 2, length / 2)),
-            position: new CANNON.Vec3(x, height / 2, z),
-            material: mats.cushionMat
-        });
-        world.addBody(body);
-    }
-
-    // Top/Bottom
-    addCushion(0, -TABLE_LENGTH/2 - thickness/2, TABLE_WIDTH + thickness * 2, thickness);
-    addCushion(0, TABLE_LENGTH/2 + thickness/2, TABLE_WIDTH + thickness * 2, thickness);
-    // Left/Right
-    addCushion(-TABLE_WIDTH/2 - thickness/2, 0, thickness, TABLE_LENGTH);
-    addCushion(TABLE_WIDTH/2 + thickness/2, 0, thickness, TABLE_LENGTH);
-}
-
-function buildBalls(ballPhysMat) {
-    const ballGeo = new THREE.SphereGeometry(BALL_RADIUS, 32, 32);
-    
-    function createBall(color, x, z, isWhite = false) {
-        // Visual
-        const mat = new THREE.MeshStandardMaterial({ color: color, roughness: 0.2, metalness: 0.1 });
-        const mesh = new THREE.Mesh(ballGeo, mat);
-        mesh.castShadow = true;
-        scene.add(mesh);
-
-        // Physics
-        const body = new CANNON.Body({
-            mass: 0.17, // roughly 170 grams
-            shape: new CANNON.Sphere(BALL_RADIUS),
-            position: new CANNON.Vec3(x, BALL_RADIUS, z),
-            material: ballPhysMat,
-            linearDamping: 0.5,  // Simulates friction dragging the ball to a stop
-            angularDamping: 0.1  // Slows down the rolling spin
-        });
-        world.addBody(body);
-
-        // Procedural sound on collision
-        body.addEventListener("collide", e => {
-            const contact = e.contact;
-            const impact = Math.abs(contact.getImpactVelocityAlongNormal());
-            const pos = body.position;
-
-            let cushionHit = false;
-
-            const aMat = contact.bi.material?.name;
-            const bMat = contact.bj.material?.name;
-
-            if (aMat === "cushion" || bMat === "cushion") cushionHit = true;
-
-            // Slightly soften cushion impact
-            const modifiedImpact = cushionHit ? impact * 0.6 : impact;
-
-            playImpactSound(modifiedImpact, pos.x, pos.y, pos.z);
-        });
-
-        balls.push({ mesh, body });
-        return body;
-    }
-
-    // 1. White Ball (Baulk line)
-    whiteBallBody = createBall(0xffffff, 0, TABLE_LENGTH * 0.25, true);
-
-    // 2. English 8-ball Rack (Red & Yellow)
-    const c = { r: 0xd32f2f, y: 0xfbc02d, b: 0x111111 };
-    const pattern = [
-        [c.r],
-        [c.y, c.r],
-        [c.r, c.b, c.y],
-        [c.y, c.r, c.y, c.r],
-        [c.r, c.y, c.r, c.y, c.y]
-    ];
-
-    const startZ = -TABLE_LENGTH * 0.25;
-    const spacing = BALL_RADIUS * 2.01; // Slight gap to prevent physics explosions on spawn
-
-    for (let row = 0; row < pattern.length; row++) {
-        const rowZ = startZ - row * (spacing * Math.sqrt(3) / 2);
-        const startX = - (row * spacing) / 2;
-
-        for (let col = 0; col < pattern[row].length; col++) {
-            createBall(pattern[row][col], startX + col * spacing, rowZ);
-        }
-    }
-}
-
-// --- Controls & Interaction ---
-function onMouseDown(e) {
-    if (e.button === 2) { 
-        isAiming = true;
-    } else if (e.button === 0 && !isMoving) { 
+function onMouseDown(event) {
+    if (event.button === 2) isAiming = true;
+    else if (event.button === 0 && !isMoving && whiteBallBody) {
         isCharging = true;
-        startDragY = e.clientY;
+        startDragY = event.clientY;
+        chargePower = 0;
         powerBarContainer.style.display = 'block';
     }
 }
 
-function onMouseMove(e) {
+function onMouseMove(event) {
     if (isAiming) {
-        cameraAngle -= e.movementX * 0.005;
-        cameraPitch += e.movementY * 0.005;
-        // Clamp the vertical angle so it doesn't go under the table or directly overhead
-        cameraPitch = Math.max(0.1, Math.min(cameraPitch, 1.4)); 
+        cameraAngle -= event.movementX * 0.005;
+        cameraPitch = THREE.MathUtils.clamp(cameraPitch + event.movementY * 0.005, 0.12, 1.42);
     }
-
     if (isCharging) {
-        const dragDist = Math.max(0, e.clientY - startDragY); 
-        chargePower = Math.min(dragDist * 0.05, MAX_POWER);
-        
-        const powerPercentage = (chargePower / MAX_POWER) * 100;
-        if (chargePower > 0.5)
-            powerBar.style.width = `${powerPercentage}%`;
-        else
-            powerBar.style.width = '0%';
+        const dragDistance = Math.max(0, event.clientY - startDragY);
+        chargePower = Math.min(dragDistance * 0.05, MAX_POWER);
+        powerBar.style.width = String((chargePower / MAX_POWER) * 100) + '%';
     }
 }
 
-function onMouseUp(e) {
-    if (e.button === 2) {
+function onMouseUp(event) {
+    if (event.button === 2) {
         isAiming = false;
-    } else if (e.button === 0) {
-        isCharging = false;
-        powerBarContainer.style.display = 'none';
-        powerBar.style.width = '0%';
-        
-        if (chargePower > 0.5) {
-            const forceX = -Math.sin(cameraAngle) * chargePower;
-            const forceZ = -Math.cos(cameraAngle) * chargePower;
-            const forceY = 0; // Keep horizontal so we don't smash the ball into the baize
-            
-            // Calculate physics contact point relative to ball center
-            const localZ = Math.sqrt(Math.max(0, BALL_RADIUS**2 - spinX**2 - spinY**2));
-            const contactOffsetX = spinX * Math.cos(cameraAngle) + localZ * Math.sin(cameraAngle);
-            const contactOffsetY = spinY;
-            const contactOffsetZ = -spinX * Math.sin(cameraAngle) + localZ * Math.cos(cameraAngle);
+        return;
+    }
+    if (event.button !== 0 || !isCharging) return;
+    isCharging = false;
+    powerBarContainer.style.display = 'none';
+    powerBar.style.width = '0%';
+    if (chargePower > 0.5 && whiteBallBody) {
+        resumeAudio();
+        const forceX = -Math.sin(cameraAngle) * chargePower;
+        const forceZ = -Math.cos(cameraAngle) * chargePower;
+        const localZ = Math.sqrt(Math.max(0, BALL_RADIUS ** 2 - spinX ** 2 - spinY ** 2));
+        const contactOffset = new CANNON.Vec3(
+            spinX * Math.cos(cameraAngle) + localZ * Math.sin(cameraAngle),
+            spinY,
+            -spinX * Math.sin(cameraAngle) + localZ * Math.cos(cameraAngle)
+        );
+        whiteBallBody.applyImpulse(new CANNON.Vec3(forceX, 0, forceZ), contactOffset);
+        whiteBallBody.wakeUp();
+        spinX = 0;
+        spinY = 0;
+    }
+    chargePower = 0;
+}
 
-            const contactPoint = new CANNON.Vec3(contactOffsetX, contactOffsetY, contactOffsetZ);
+function onMouseWheel(event) {
+    event.preventDefault();
+    cameraDistance = THREE.MathUtils.clamp(cameraDistance + event.deltaY * 0.005, 3, 25);
+}
 
-            whiteBallBody.applyImpulse(
-                new CANNON.Vec3(forceX, forceY, forceZ),
-                contactPoint
-            );
-            
-            chargePower = 0;
-            
-            // RESET SPIN FOR THE NEXT SHOT
-            spinX = 0;
-            spinY = 0;
+function onKeyDown(event) {
+    if (isMoving) return;
+    const key = event.key.toLowerCase();
+    const spinSpeed = 0.01;
+    if (key === 'arrowup' || key === 'w') spinY += spinSpeed;
+    if (key === 'arrowdown' || key === 's') spinY -= spinSpeed;
+    if (key === 'arrowleft' || key === 'a') spinX -= spinSpeed;
+    if (key === 'arrowright' || key === 'd') spinX += spinSpeed;
+    const radius = Math.hypot(spinX, spinY);
+    if (radius > MAX_SPIN_RADIUS) {
+        spinX = spinX / radius * MAX_SPIN_RADIUS;
+        spinY = spinY / radius * MAX_SPIN_RADIUS;
+    }
+}
+
+function updatePocketing() {
+    for (const ball of balls) {
+        if (ball.potted) continue;
+        const p = ball.body.position;
+        const pocket = pockets.find(candidate =>
+            Math.hypot(p.x - candidate.x, p.z - candidate.z) < POCKET_CAPTURE_RADIUS
+        );
+        if (!pocket) continue;
+
+        // The bed has no collision shape under the pocket aperture. Once the
+        // ball centre enters the capture zone it drops through the pocket.
+        ball.body.position.y -= 0.035;
+        ball.body.velocity.scale(0.92, ball.body.velocity);
+        if (ball.body.position.y < BALL_RADIUS - POCKET_DROP_DEPTH) {
+            ball.potted = true;
+            ball.pocket = pocket.id;
+            ball.mesh.visible = false;
+            world.removeBody(ball.body);
+            if (ball.body === whiteBallBody) whiteBallBody = null;
         }
     }
 }
 
-function onMouseWheel(e) {
-    e.preventDefault();
-    cameraDistance += e.deltaY * 0.005;
-    cameraDistance = Math.max(2, Math.min(cameraDistance, 18));
+function updateMovementState() {
+    isMoving = balls.some(ball => {
+        if (ball.potted) return false;
+        const body = ball.body;
+        return body.sleepState !== CANNON.Body.SLEEPING &&
+            (body.velocity.lengthSquared() > 0.0004 || body.angularVelocity.lengthSquared() > 0.0025);
+    });
 }
 
-function onKeyDown(e) {
-    // Only allow spin changes if the player is aiming and the ball is still
-    if (isMoving) return;
+function updateTrajectory() {
+    if (!whiteBallBody || isMoving) {
+        ghostBall.visible = mainLine.visible = cueDeflectionLine.visible = objectBallLine.visible = false;
+        return;
+    }
+    ghostBall.visible = mainLine.visible = true;
+    const start = whiteBallBody.position;
+    const direction = new THREE.Vector3(-Math.sin(cameraAngle), 0, -Math.cos(cameraAngle)).normalize();
+    let minDistance = Infinity;
+    let hitType = 'none';
+    let hitObjectPosition = null;
+    let hitNormal = new THREE.Vector3();
 
-    const spinSpeed = 0.01;
-    
-    if (e.key === 'ArrowUp' || e.key === 'w') spinY += spinSpeed;
-    if (e.key === 'ArrowDown' || e.key === 's') spinY -= spinSpeed;
-    if (e.key === 'ArrowLeft' || e.key === 'a') spinX -= spinSpeed;
-    if (e.key === 'ArrowRight' || e.key === 'd') spinX += spinSpeed;
+    for (const ball of balls) {
+        if (ball.potted || ball.body === whiteBallBody) continue;
+        const p = ball.body.position;
+        const offset = new THREE.Vector3(p.x - start.x, 0, p.z - start.z);
+        const projection = offset.dot(direction);
+        if (projection < 0) continue;
+        const perpendicularSq = offset.lengthSq() - projection * projection;
+        const combinedRadius = BALL_RADIUS * 2;
+        if (perpendicularSq > combinedRadius * combinedRadius) continue;
+        const distance = projection - Math.sqrt(combinedRadius * combinedRadius - perpendicularSq);
+        if (distance > 0 && distance < minDistance) {
+            minDistance = distance;
+            hitType = 'ball';
+            hitObjectPosition = new THREE.Vector3(p.x, p.y, p.z);
+        }
+    }
 
-    // Clamp the spin to prevent impossible shots (cueing through the ball)
-    const currentRadius = Math.sqrt(spinX**2 + spinY**2);
-    if (currentRadius > MAX_SPIN_RADIUS) {
-        // Normalize the vector and multiply by our max radius
-        spinX = (spinX / currentRadius) * MAX_SPIN_RADIUS;
-        spinY = (spinY / currentRadius) * MAX_SPIN_RADIUS;
+    // Cushion limits are offset by the ball radius. Pocket openings are
+    // deliberately not predicted as cushions in this prototype.
+    const xLimit = HALF_WIDTH - BALL_RADIUS;
+    const zLimit = HALF_LENGTH - BALL_RADIUS;
+    if (direction.x < 0) {
+        const t = (-xLimit - start.x) / direction.x;
+        if (t > 0 && t < minDistance) { minDistance = t; hitType = 'cushion'; hitNormal.set(1, 0, 0); }
+    } else if (direction.x > 0) {
+        const t = (xLimit - start.x) / direction.x;
+        if (t > 0 && t < minDistance) { minDistance = t; hitType = 'cushion'; hitNormal.set(-1, 0, 0); }
+    }
+    if (direction.z < 0) {
+        const t = (-zLimit - start.z) / direction.z;
+        if (t > 0 && t < minDistance) { minDistance = t; hitType = 'cushion'; hitNormal.set(0, 0, 1); }
+    } else if (direction.z > 0) {
+        const t = (zLimit - start.z) / direction.z;
+        if (t > 0 && t < minDistance) { minDistance = t; hitType = 'cushion'; hitNormal.set(0, 0, -1); }
+    }
+
+    if (!Number.isFinite(minDistance)) {
+        ghostBall.visible = mainLine.visible = false;
+        return;
+    }
+    const startVector = new THREE.Vector3(start.x, start.y, start.z);
+    const impactPosition = startVector.clone().add(direction.clone().multiplyScalar(minDistance));
+    ghostBall.position.copy(impactPosition);
+    mainLine.geometry.setFromPoints([startVector, impactPosition]);
+    mainLine.computeLineDistances();
+
+    if (hitType === 'ball') {
+        cueDeflectionLine.visible = objectBallLine.visible = true;
+        const objectDirection = hitObjectPosition.clone().sub(impactPosition).normalize();
+        objectBallLine.geometry.setFromPoints([
+            hitObjectPosition, hitObjectPosition.clone().add(objectDirection.multiplyScalar(4))
+        ]);
+        objectBallLine.computeLineDistances();
+        const normal = hitObjectPosition.clone().sub(impactPosition).normalize();
+        let cueDirection = direction.clone().sub(normal.clone().multiplyScalar(direction.dot(normal))).normalize();
+        if (cueDirection.lengthSq() < 0.01) cueDirection = direction.clone();
+        cueDeflectionLine.geometry.setFromPoints([
+            impactPosition, impactPosition.clone().add(cueDirection.multiplyScalar(2))
+        ]);
+        cueDeflectionLine.computeLineDistances();
+    } else if (hitType === 'cushion') {
+        cueDeflectionLine.visible = true;
+        objectBallLine.visible = false;
+        const reflected = direction.clone().sub(hitNormal.clone().multiplyScalar(2 * direction.dot(hitNormal))).normalize();
+        cueDeflectionLine.geometry.setFromPoints([
+            impactPosition, impactPosition.clone().add(reflected.multiplyScalar(4))
+        ]);
+        cueDeflectionLine.computeLineDistances();
+    } else {
+        cueDeflectionLine.visible = objectBallLine.visible = false;
+    }
+}
+
+function updateCamera() {
+    if (!whiteBallBody) return;
+    camera.position.set(
+        whiteBallBody.position.x + Math.sin(cameraAngle) * Math.cos(cameraPitch) * cameraDistance,
+        whiteBallBody.position.y + Math.sin(cameraPitch) * cameraDistance,
+        whiteBallBody.position.z + Math.cos(cameraAngle) * Math.cos(cameraPitch) * cameraDistance
+    );
+    camera.lookAt(whiteBallBody.position.x, whiteBallBody.position.y, whiteBallBody.position.z);
+    if (!isMoving) {
+        const localZ = Math.sqrt(Math.max(0, BALL_RADIUS ** 2 - spinX ** 2 - spinY ** 2));
+        strikeDot.visible = true;
+        strikeDot.position.set(
+            whiteBallBody.position.x + spinX * Math.cos(cameraAngle) + localZ * Math.sin(cameraAngle),
+            whiteBallBody.position.y + spinY,
+            whiteBallBody.position.z - spinX * Math.sin(cameraAngle) + localZ * Math.cos(cameraAngle)
+        );
+    } else {
+        strikeDot.visible = false;
     }
 }
 
@@ -641,82 +635,43 @@ function onWindowResize() {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 }
 
-function animate() {
+function animate(timestamp = 0) {
     requestAnimationFrame(animate);
-
-    // Step the physics world forward
-    world.step(timeStep);
-
-    // Sync Three.js visual meshes with Cannon.js rigid bodies
-    for (const ball of balls) {
-        ball.mesh.position.copy(ball.body.position);
-        ball.mesh.quaternion.copy(ball.body.quaternion);
+    const elapsed = lastFrameTime ? Math.min((timestamp - lastFrameTime) / 1000, MAX_FRAME_DELTA) : 0;
+    lastFrameTime = timestamp;
+    accumulator += elapsed;
+    while (accumulator >= FIXED_TIME_STEP) {
+        world.step(FIXED_TIME_STEP);
+        updatePocketing();
+        accumulator -= FIXED_TIME_STEP;
     }
 
-    // Sync Three.js visual meshes with Cannon.js rigid bodies
-    for (const ball of balls) {
-        ball.mesh.position.copy(ball.body.position);
-        ball.mesh.quaternion.copy(ball.body.quaternion);
-    }
-
-    // Update Trajectory and Motion State
-    isMoving = whiteBallBody.velocity.length() > 0.01;
+    updateMovementState();
     updateTrajectory();
+    updateCamera();
 
-    // Replace aimingLine.visible with !isMoving
-    if (!isMoving) {
-        strikeDot.visible = true;
-        
-        // Calculate the depth (Z) on the sphere's surface facing the camera
-        const localZ = Math.sqrt(Math.max(0, BALL_RADIUS**2 - spinX**2 - spinY**2));
-        
-        // Rotate local spin offset into world space based on camera yaw
-        const worldOffsetX = spinX * Math.cos(cameraAngle) + localZ * Math.sin(cameraAngle);
-        const worldOffsetY = spinY;
-        const worldOffsetZ = -spinX * Math.sin(cameraAngle) + localZ * Math.cos(cameraAngle);
-
-        strikeDot.position.set(
-            whiteBallBody.position.x + worldOffsetX,
-            whiteBallBody.position.y + worldOffsetY,
-            whiteBallBody.position.z + worldOffsetZ
-        );
-    } else {
-        strikeDot.visible = false;
+    if (audioCtx && camera) {
+        const listener = audioCtx.listener;
+        const forward = new THREE.Vector3();
+        camera.getWorldDirection(forward);
+        listener.positionX.value = camera.position.x;
+        listener.positionY.value = camera.position.y;
+        listener.positionZ.value = camera.position.z;
+        listener.forwardX.value = forward.x;
+        listener.forwardY.value = forward.y;
+        listener.forwardZ.value = forward.z;
+        listener.upX.value = camera.up.x;
+        listener.upY.value = camera.up.y;
+        listener.upZ.value = camera.up.z;
     }
 
-    // NEW: Calculate Strike Point Offset
-    const normalizedPitch = (cameraPitch - 0.1) / 1.3; 
-
-    // Calculate dot position on the ball surface facing the camera
-    const dirX = Math.sin(cameraAngle);
-    const dirZ = Math.cos(cameraAngle);
-
-
-    // NEW: Update Camera Position using Spherical Coordinates
-    camera.position.x = whiteBallBody.position.x + Math.sin(cameraAngle) * Math.cos(cameraPitch) * cameraDistance;
-    camera.position.y = whiteBallBody.position.y + Math.sin(cameraPitch) * cameraDistance;
-    camera.position.z = whiteBallBody.position.z + Math.cos(cameraAngle) * Math.cos(cameraPitch) * cameraDistance; 
-    camera.lookAt(whiteBallBody.position.x, whiteBallBody.position.y, whiteBallBody.position.z);
-
-    // Update audio listener to camera position
-    const listener = audioCtx.listener;
-    listener.positionX.value = camera.position.x;
-    listener.positionY.value = camera.position.y;
-    listener.positionZ.value = camera.position.z;
-
-    const forward = new THREE.Vector3();
-    camera.getWorldDirection(forward);
-
-    listener.forwardX.value = forward.x;
-    listener.forwardY.value = forward.y;
-    listener.forwardZ.value = forward.z;
-
-    listener.upX.value = camera.up.x;
-    listener.upY.value = camera.up.y;
-    listener.upZ.value = camera.up.z;
-
-    // Render
+    for (const ball of balls) {
+        if (ball.potted) continue;
+        ball.mesh.position.copy(ball.body.position);
+        ball.mesh.quaternion.copy(ball.body.quaternion);
+    }
     renderer.render(scene, camera);
 }
