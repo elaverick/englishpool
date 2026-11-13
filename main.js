@@ -201,6 +201,7 @@ function buildTable(mats) {
     scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(dPoints),
         new THREE.LineBasicMaterial({ color: 0xe7e1c8 })));
     addTableSpot(0, -HALF_LENGTH * 0.25, marking);
+    addTableSpot(0, 0, marking);
     addTableSpot(0, HALF_LENGTH * 0.25, marking);
 }
 
