@@ -203,7 +203,7 @@ function buildTable(mats) {
     line.position.set(0, 0.022, baulkZ);
     scene.add(line);
 
-    const curve = new THREE.EllipseCurve(0, baulkZ, 1, 1, -Math.PI / 2, Math.PI / 2, false, 0);
+    const curve = new THREE.EllipseCurve(0, baulkZ, 1, 1, 0, Math.PI, false, 0);
     const dPoints = curve.getPoints(48).map(p => new THREE.Vector3(p.x, 0.023, p.y));
     scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(dPoints),
         new THREE.LineBasicMaterial({ color: 0xe7e1c8 })));
@@ -276,8 +276,8 @@ function addPocketJaws(material, physicsMaterial) {
     for (const sx of [-1, 1]) {
         for (const sz of [-1, 1]) {
             jaws.push(
-                { x: sx * 4.42, z: sz * 9.42, angle: sx * sz * Math.PI / 4 },
-                { x: sx * 4.42, z: sz * 9.42, angle: -sx * sz * Math.PI / 4 }
+                { x: sx * 4.43, z: sz * 9.02, angle: sx * sz * Math.PI / 4 },
+                { x: sx * 4.03, z: sz * 9.43, angle: -sx * sz * Math.PI / 4 }
             );
         }
     }
