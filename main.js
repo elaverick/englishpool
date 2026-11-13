@@ -151,14 +151,7 @@ function buildTable(mats) {
     cabinet.castShadow = cabinet.receiveShadow = true;
     scene.add(cabinet);
 
-    const cloth = new THREE.Mesh(
-        new THREE.PlaneGeometry(TABLE_WIDTH, TABLE_LENGTH), createBaizeMaterial()
-    );
-    cloth.rotation.x = -Math.PI / 2;
-    cloth.position.y = 0.012;
-    cloth.receiveShadow = true;
-    scene.add(cloth);
-
+    buildClothTiles(createBaizeMaterial());
     buildBedCollisionTiles(mats.tableMat);
     createPockets(black, brass);
 
@@ -209,6 +202,30 @@ function buildTable(mats) {
         new THREE.LineBasicMaterial({ color: 0xe7e1c8 })));
     addTableSpot(0, -HALF_LENGTH * 0.25, marking);
     addTableSpot(0, HALF_LENGTH * 0.25, marking);
+}
+
+function buildClothTiles(material) {
+    // Render the cloth in the same tiles as the collision bed so the six
+    // pocket apertures are visible instead of being covered by a flat plane.
+    const xSegments = [[-5, -4.25], [-4.25, 4.25], [4.25, 5]];
+    const zSegments = [
+        [-10, -9.25], [-9.25, -0.72], [-0.72, 0.72],
+        [0.72, 9.25], [9.25, 10]
+    ];
+    for (let xi = 0; xi < xSegments.length; xi++) {
+        for (let zi = 0; zi < zSegments.length; zi++) {
+            if (xi !== 1 && (zi === 0 || zi === 2 || zi === 4)) continue;
+            const [x0, x1] = xSegments[xi];
+            const [z0, z1] = zSegments[zi];
+            const mesh = new THREE.Mesh(
+                new THREE.PlaneGeometry(x1 - x0, z1 - z0), material
+            );
+            mesh.rotation.x = -Math.PI / 2;
+            mesh.position.set((x0 + x1) / 2, 0.012, (z0 + z1) / 2);
+            mesh.receiveShadow = true;
+            scene.add(mesh);
+        }
+    }
 }
 
 function buildBedCollisionTiles(tableMat) {
