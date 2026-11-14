@@ -124,7 +124,7 @@ try {
     };
 
     const scenarios = [
-      ['white', 'top-left'],
+      ['red', 'top-left'],
       ['red', 'middle-right'],
       ['yellow', 'top-right'],
       ['red', 'middle-left'],
