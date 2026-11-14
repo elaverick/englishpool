@@ -72,6 +72,9 @@ function init() {
             get fixedTimeStep() { return FIXED_TIME_STEP; },
             get cushionBedOverlap() { return CUSHION_BED_OVERLAP; },
             get woodenFrameInnerBounds() {
+                return { halfWidth: HALF_WIDTH + 0.54, halfLength: HALF_LENGTH + 0.54 };
+            },
+            get woodenApronInnerBounds() {
                 return { halfWidth: HALF_WIDTH, halfLength: HALF_LENGTH };
             },
             refreshMovementState() {
@@ -380,35 +383,31 @@ function addRailSegment(
 }
 
 function buildWoodenFrame(material) {
-    // The upper timber is one continuous rectangular perimeter, not four
-    // independently-ended bars. Its underside reaches the playing-surface
-    // height so the cushion support cannot appear to float.
-    const surfaceY = 0.012;
-    const topY = 0.74;
-    const frameOuterHalfWidth = HALF_WIDTH + 1;
-    const frameOuterHalfLength = HALF_LENGTH + 1;
-    const frameInnerHalfWidth = HALF_WIDTH;
-    const frameInnerHalfLength = HALF_LENGTH;
-    const extrusionDepth = topY - surfaceY;
+    // A continuous top ring retains the original narrow visible border.
+    // A second, deeper apron ring overlaps it underneath and reaches the
+    // playing-surface plane. Both rings are single joined meshes, so there
+    // are no mitred-bar gaps at the four outer corners.
+    function perimeterShape(outerHalfWidth, outerHalfLength, innerHalfWidth, innerHalfLength) {
+        const shape = new THREE.Shape();
+        shape.moveTo(-outerHalfWidth, outerHalfLength);
+        shape.lineTo(outerHalfWidth, outerHalfLength);
+        shape.lineTo(outerHalfWidth, -outerHalfLength);
+        shape.lineTo(-outerHalfWidth, -outerHalfLength);
+        shape.closePath();
 
-    const perimeter = new THREE.Shape();
-    perimeter.moveTo(-frameOuterHalfWidth, frameOuterHalfLength);
-    perimeter.lineTo(frameOuterHalfWidth, frameOuterHalfLength);
-    perimeter.lineTo(frameOuterHalfWidth, -frameOuterHalfLength);
-    perimeter.lineTo(-frameOuterHalfWidth, -frameOuterHalfLength);
-    perimeter.closePath();
+        const opening = new THREE.Path();
+        opening.moveTo(-innerHalfWidth, innerHalfLength);
+        opening.lineTo(-innerHalfWidth, -innerHalfLength);
+        opening.lineTo(innerHalfWidth, -innerHalfLength);
+        opening.lineTo(innerHalfWidth, innerHalfLength);
+        opening.closePath();
+        shape.holes.push(opening);
+        return shape;
+    }
 
-    const opening = new THREE.Path();
-    opening.moveTo(-frameInnerHalfWidth, frameInnerHalfLength);
-    opening.lineTo(-frameInnerHalfWidth, -frameInnerHalfLength);
-    opening.lineTo(frameInnerHalfWidth, -frameInnerHalfLength);
-    opening.lineTo(frameInnerHalfWidth, frameInnerHalfLength);
-    opening.closePath();
-    perimeter.holes.push(opening);
-
-    function addTimberPiece(shape, name) {
+    function addTimberPiece(shape, name, bottomY, topY) {
         const geometry = new THREE.ExtrudeGeometry(shape, {
-            depth: extrusionDepth,
+            depth: topY - bottomY,
             bevelEnabled: false,
             curveSegments: 24
         });
@@ -418,15 +417,29 @@ function buildWoodenFrame(material) {
 
         const mesh = new THREE.Mesh(geometry, material);
         mesh.name = name;
-        mesh.position.y = surfaceY;
+        mesh.position.y = bottomY;
         mesh.castShadow = mesh.receiveShadow = true;
         scene.add(mesh);
         return mesh;
     }
 
-    addTimberPiece(perimeter, 'wooden-frame-perimeter');
+    // Existing top-board dimensions: 0.46 wide, with its upper face at 0.74.
+    addTimberPiece(
+        perimeterShape(6.0, 11.0, 5.54, 10.54),
+        'wooden-frame-perimeter',
+        0.42,
+        0.74
+    );
 
-
+    // Structural apron underneath: fills the space from the outer frame to
+    // the straight table boundary, while leaving the corner pocket cut-outs
+    // inside that boundary unobstructed.
+    addTimberPiece(
+        perimeterShape(5.55, 10.55, HALF_WIDTH, HALF_LENGTH),
+        'wooden-apron-perimeter',
+        0.012,
+        0.43
+    );
 }
 
 function addSight(x, z, material) {
