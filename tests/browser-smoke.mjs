@@ -71,6 +71,11 @@ try {
       meshCount,
       ballCount: test.balls.length,
       pocketCount: test.pockets.length,
+      pocketLinerCount: test.scene.children.filter(object => object.name?.startsWith('pocket-liner-')).length,
+      pocketRimCount: test.scene.children.filter(object => object.name?.startsWith('pocket-rim-')).length,
+      pocketJawMeshCount: test.scene.children.filter(object => object.name?.startsWith('pocket-jaw-')).length,
+      pocketJawBodyCount: test.world.bodies.filter(body => body.name?.startsWith('pocket-jaw-')).length,
+      pocketMouthRadii: test.pockets.map(pocket => pocket.mouthRadius),
       invalidGeometries
     };
   });
@@ -82,6 +87,11 @@ try {
   assert.ok(diagnostics.meshCount > 0, 'Scene contains no meshes');
   assert.equal(diagnostics.ballCount, 16, 'Expected cue ball plus fifteen object balls');
   assert.equal(diagnostics.pocketCount, 6, 'Expected six pocket definitions');
+  assert.equal(diagnostics.pocketLinerCount, 6, 'Expected six recessed pocket liners');
+  assert.equal(diagnostics.pocketRimCount, 6, 'Expected six visible pocket rims');
+  assert.equal(diagnostics.pocketJawMeshCount, 12, 'Expected two visible jaws per pocket');
+  assert.equal(diagnostics.pocketJawBodyCount, 12, 'Expected matching collision bodies for all jaws');
+  assert.ok(diagnostics.pocketMouthRadii.every(radius => radius >= 0.8), 'Pocket mouths are unexpectedly narrow');
   assert.deepEqual(diagnostics.invalidGeometries, [], 'Found invalid mesh geometry');
 
   const test = await page.evaluateHandle(() => window.__POOL_TEST__);
