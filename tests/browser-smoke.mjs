@@ -80,6 +80,8 @@ try {
       ballLinearDamping: test.balls[0].body.linearDamping,
       ballAngularDamping: test.balls[0].body.angularDamping,
       fixedTimeStep: test.fixedTimeStep,
+      cushionBedOverlap: test.cushionBedOverlap,
+      cushionRailCount: test.scene.children.filter(object => object.name?.startsWith('cushion-rail-')).length,
       worldSleepEnabled: test.world.allowSleep,
       contactMaterials: test.world.contactmaterials.map(contact => ({
         pair: contact.materials.map(material => material.name).sort().join(':'),
@@ -106,6 +108,8 @@ try {
   assert.equal(diagnostics.ballLinearDamping, 0.5, 'Original linear rolling resistance was changed');
   assert.equal(diagnostics.ballAngularDamping, 0.1, 'Original angular rolling resistance was changed');
   assert.equal(diagnostics.fixedTimeStep, 1 / 60, 'Original physics step duration was changed');
+  assert.equal(diagnostics.cushionBedOverlap, 0.18, 'Cushions must overlap the cloth edge to close the rail gap');
+  assert.equal(diagnostics.cushionRailCount, 8, 'Expected eight continuous cushion segments');
   assert.equal(diagnostics.worldSleepEnabled, false, 'Automatic world sleeping should remain disabled as in the original prototype');
   const expectedContacts = {
     'ball:ball': [0.1, 0.9],
