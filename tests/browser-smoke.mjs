@@ -77,6 +77,13 @@ try {
       pocketJawMeshCount: test.scene.children.filter(object => object.name?.startsWith('pocket-jaw-')).length,
       pocketJawBodyCount: test.world.bodies.filter(body => body.name?.startsWith('pocket-jaw-')).length,
       pocketMouthRadii: test.pockets.map(pocket => pocket.mouthRadius),
+      ballLinearDamping: test.balls[0].body.linearDamping,
+      ballAngularDamping: test.balls[0].body.angularDamping,
+      contactMaterials: test.world.contactmaterials.map(contact => ({
+        pair: contact.materials.map(material => material.name).sort().join(':'),
+        friction: contact.friction,
+        restitution: contact.restitution
+      })),
       invalidGeometries
     };
   });
@@ -94,6 +101,19 @@ try {
   assert.equal(diagnostics.pocketJawMeshCount, 0, 'Pocket transitions should not use separate jaw blocks');
   assert.equal(diagnostics.pocketJawBodyCount, 0, 'Pocket transitions should not use separate jaw collision bodies');
   assert.ok(diagnostics.pocketMouthRadii.every(radius => radius >= 0.6), 'Pocket mouths are unexpectedly narrow');
+  assert.equal(diagnostics.ballLinearDamping, 0.5, 'Original linear rolling resistance was changed');
+  assert.equal(diagnostics.ballAngularDamping, 0.1, 'Original angular rolling resistance was changed');
+  const expectedContacts = {
+    'ball:ball': [0.1, 0.9],
+    'ball:table': [0.4, 0.1],
+    'ball:cushion': [0.1, 0.8]
+  };
+  for (const [pair, [friction, restitution]] of Object.entries(expectedContacts)) {
+    const contact = diagnostics.contactMaterials.find(candidate => candidate.pair === pair);
+    assert.ok(contact, `Missing ${pair} contact material`);
+    assert.equal(contact.friction, friction, `Unexpected ${pair} friction`);
+    assert.equal(contact.restitution, restitution, `Unexpected ${pair} restitution`);
+  }
   assert.deepEqual(diagnostics.invalidGeometries, [], 'Found invalid mesh geometry');
 
   const test = await page.evaluateHandle(() => window.__POOL_TEST__);
@@ -111,6 +131,27 @@ try {
     window.__POOL_TEST__.setCamera([-15, 10, 0], [-4.4, 0, 0]);
   });
   await page.screenshot({ path: `${outputDir}/side-pocket.png`, fullPage: true });
+
+  // Shot availability follows the cue ball only. Object balls may still be
+  // rolling after the cue ball has stopped, and must not lock out the next shot.
+  const movementState = await page.evaluate(() => {
+    const test = window.__POOL_TEST__;
+    const cue = test.setBallState('white', [0, 0.25, 5], [0, 0, 0]);
+    const objectBall = test.setBallState('red', [1, 0.25, 5], [2, 0, 0]);
+    const cueStopped = test.refreshMovementState();
+    const canShootWhileObjectBallRolls = test.canShoot;
+
+    cue.body.velocity.set(0, 0, -0.2);
+    const cueMoving = test.refreshMovementState();
+
+    cue.body.velocity.set(0, 0, 0);
+    objectBall.body.velocity.set(0, 0, 0);
+    test.refreshMovementState();
+    return { cueStopped, canShootWhileObjectBallRolls, cueMoving };
+  });
+  assert.equal(movementState.cueStopped, false, 'Stationary cue ball was marked as moving');
+  assert.equal(movementState.canShootWhileObjectBallRolls, true, 'Moving object balls incorrectly prevent the next shot');
+  assert.equal(movementState.cueMoving, true, 'Moving cue ball did not lock shot input');
 
   // Exercise every pocket throat after capturing the clean starting-table screenshots.
   const pocketPhysics = await page.evaluate(() => {
