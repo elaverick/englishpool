@@ -327,7 +327,7 @@ function buildPocketJaws(material, physicsMaterial) {
     // block. The same extruded geometry supplies both the render mesh and the
     // static collision mesh, keeping the cushion nose and physics aligned.
     const height = CUSHION_HEIGHT;
-    const bevel = 0.035;
+    const bevel = 0.06;
 
     function addWedge(name, points) {
         const shape = new THREE.Shape();
@@ -336,7 +336,7 @@ function buildPocketJaws(material, physicsMaterial) {
             const next = points[(index + 1) % points.length];
             const previousLength = Math.hypot(previous[0] - point[0], previous[1] - point[1]);
             const nextLength = Math.hypot(next[0] - point[0], next[1] - point[1]);
-            const radius = Math.min(0.11, previousLength * 0.24, nextLength * 0.24);
+            const radius = Math.min(0.2, previousLength * 0.45, nextLength * 0.45);
             const before = [
                 point[0] + (previous[0] - point[0]) / previousLength * radius,
                 point[1] + (previous[1] - point[1]) / previousLength * radius
@@ -362,10 +362,10 @@ function buildPocketJaws(material, physicsMaterial) {
             depth: height,
             steps: 1,
             bevelEnabled: true,
-            bevelSegments: 2,
+            bevelSegments: 4,
             bevelSize: bevel,
             bevelThickness: bevel,
-            curveSegments: 2
+            curveSegments: 8
         });
         geometry.rotateX(-Math.PI / 2);
         geometry.computeVertexNormals();
