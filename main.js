@@ -287,27 +287,17 @@ function createPockets(black) {
         { id: 'bottom-right', type: 'corner', x: 4.55, z: 9.55, mouthRadius: 0.88, captureRadius: 0.61 }
     ];
 
-    const linerMaterial = new THREE.MeshStandardMaterial({
-        color: 0x080909, roughness: 0.96, metalness: 0.02,
-        side: THREE.DoubleSide
-    });
+    const pocketWellMaterial = new THREE.MeshBasicMaterial({ color: 0x030504 });
 
     for (const pocket of pockets) {
-        const floor = new THREE.Mesh(new THREE.CircleGeometry(0.62, 48), black);
+        // The cabinet top sits immediately below the cloth. A dark, recessed
+        // well disc masks that surface through the cloth cut-out without a
+        // conspicuous cylindrical wall or decorative ring.
+        const floor = new THREE.Mesh(new THREE.CircleGeometry(0.82, 48), pocketWellMaterial);
         floor.name = `pocket-floor-${pocket.id}`;
         floor.rotation.x = -Math.PI / 2;
-        floor.position.set(pocket.x, -0.62, pocket.z);
+        floor.position.set(pocket.x, -0.055, pocket.z);
         scene.add(floor);
-
-        const liner = new THREE.Mesh(
-            new THREE.CylinderGeometry(0.78, 0.43, 0.62, 48, 1, true),
-            linerMaterial
-        );
-        liner.name = `pocket-liner-${pocket.id}`;
-        liner.position.set(pocket.x, -0.29, pocket.z);
-        liner.castShadow = true;
-        liner.receiveShadow = true;
-        scene.add(liner);
 
     }
 }
