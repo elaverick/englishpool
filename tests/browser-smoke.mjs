@@ -139,7 +139,7 @@ try {
   // Low end-on view exposes the cushion-to-cloth join and the centre joint
   // between the two halves of each end cushion.
   await page.evaluate(() => {
-    window.__POOL_TEST__.setCamera([0, 7, 27], [0, 0, -7]);
+    window.__POOL_TEST__.setCamera([0, 5.5, 18], [0, 0, -6]);
   });
   await page.screenshot({ path: `${outputDir}/end-rail-profile.png`, fullPage: true });
 
