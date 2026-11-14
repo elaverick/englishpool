@@ -192,8 +192,7 @@ function buildTable(mats) {
         addRailSegment(0, sz * (HALF_LENGTH + 0.34), 8.0, CUSHION_THICKNESS,
             0, cushionVisual, mats.cushionMat);
     }
-    // Corner openings remain clear; shaped cushion noses will be added
-    // against the same pocket outline in the next geometry pass.
+    buildPocketJaws(cushionVisual, mats.cushionMat);
 
     addVisualRail(0, -HALF_LENGTH - 0.77, TABLE_WIDTH + 1.55, 0.46, wood);
     addVisualRail(0, HALF_LENGTH + 0.77, TABLE_WIDTH + 1.55, 0.46, wood);
@@ -229,18 +228,18 @@ function buildPlayingSurface(material, tableMat) {
     // A single continuous outline forms six open notches in the table edge.
     // Shape coordinates use (x, -z), then rotate onto the XZ playing plane.
     const shape = new THREE.Shape();
-    shape.moveTo(-4.0, 10.0);
-    shape.quadraticCurveTo(-5.0, 10.0, -5.0, 9.0);
+    shape.moveTo(-3.75, 10.0);
+    shape.quadraticCurveTo(-5.0, 10.0, -5.0, 8.75);
     shape.lineTo(-5.0, 0.82);
-    shape.quadraticCurveTo(-4.15, 0.0, -5.0, -0.82);
-    shape.lineTo(-5.0, -9.0);
-    shape.quadraticCurveTo(-5.0, -10.0, -4.0, -10.0);
-    shape.lineTo(4.0, -10.0);
-    shape.quadraticCurveTo(5.0, -10.0, 5.0, -9.0);
+    shape.quadraticCurveTo(-3.3, 0.0, -5.0, -0.85);
+    shape.lineTo(-5.0, -8.75);
+    shape.quadraticCurveTo(-5.0, -10.0, -3.75, -10.0);
+    shape.lineTo(3.75, -10.0);
+    shape.quadraticCurveTo(5.0, -10.0, 5.0, -8.75);
     shape.lineTo(5.0, -0.82);
-    shape.quadraticCurveTo(4.15, 0.0, 5.0, 0.82);
-    shape.lineTo(5.0, 9.0);
-    shape.quadraticCurveTo(5.0, 10.0, 4.0, 10.0);
+    shape.quadraticCurveTo(3.3, 0.0, 5.0, 0.85);
+    shape.lineTo(5.0, 8.75);
+    shape.quadraticCurveTo(5.0, 10.0, 3.75, 10.0);
     shape.closePath();
 
     const geometry = new THREE.ShapeGeometry(shape, 24);
@@ -260,18 +259,81 @@ function buildPlayingSurface(material, tableMat) {
 
 function createPockets(black) {
     pockets = [
-        { id: 'top-left', x: -4.6, z: -9.6 },
-        { id: 'top-right', x: 4.6, z: -9.6 },
-        { id: 'middle-left', x: -4.15, z: 0 },
-        { id: 'middle-right', x: 4.15, z: 0 },
-        { id: 'bottom-left', x: -4.6, z: 9.6 },
-        { id: 'bottom-right', x: 4.6, z: 9.6 }
+        { id: 'top-left', type: 'corner', x: -4.55, z: -9.55, mouthRadius: 0.88 },
+        { id: 'top-right', type: 'corner', x: 4.55, z: -9.55, mouthRadius: 0.88 },
+        { id: 'middle-left', type: 'side', x: -4.15, z: 0, mouthRadius: 0.85 },
+        { id: 'middle-right', type: 'side', x: 4.15, z: 0, mouthRadius: 0.85 },
+        { id: 'bottom-left', type: 'corner', x: -4.55, z: 9.55, mouthRadius: 0.88 },
+        { id: 'bottom-right', type: 'corner', x: 4.55, z: 9.55, mouthRadius: 0.88 }
     ];
+
+    const linerMaterial = new THREE.MeshStandardMaterial({
+        color: 0x080909, roughness: 0.96, metalness: 0.02,
+        side: THREE.DoubleSide
+    });
+    const rimMaterial = new THREE.MeshStandardMaterial({
+        color: 0x8b6938, roughness: 0.42, metalness: 0.62
+    });
+
     for (const pocket of pockets) {
-        const floor = new THREE.Mesh(new THREE.CircleGeometry(0.72, 40), black);
+        const floor = new THREE.Mesh(new THREE.CircleGeometry(0.62, 48), black);
+        floor.name = `pocket-floor-${pocket.id}`;
         floor.rotation.x = -Math.PI / 2;
-        floor.position.set(pocket.x, -0.58, pocket.z);
+        floor.position.set(pocket.x, -0.62, pocket.z);
         scene.add(floor);
+
+        const liner = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.78, 0.43, 0.62, 48, 1, true),
+            linerMaterial
+        );
+        liner.name = `pocket-liner-${pocket.id}`;
+        liner.position.set(pocket.x, -0.29, pocket.z);
+        liner.castShadow = true;
+        liner.receiveShadow = true;
+        scene.add(liner);
+
+        const rim = new THREE.Mesh(new THREE.TorusGeometry(0.70, 0.035, 8, 48), rimMaterial);
+        rim.name = `pocket-rim-${pocket.id}`;
+        rim.rotation.x = Math.PI / 2;
+        rim.position.set(pocket.x, 0.018, pocket.z);
+        rim.castShadow = true;
+        scene.add(rim);
+    }
+}
+
+function buildPocketJaws(material, physicsMaterial) {
+    const jawLength = 0.72;
+    const jawWidth = 0.34;
+    const jawHeight = CUSHION_HEIGHT;
+
+    function addJaw(name, x, z, angle) {
+        const mesh = new THREE.Mesh(
+            new THREE.BoxGeometry(jawWidth, jawHeight, jawLength),
+            material
+        );
+        mesh.name = `pocket-jaw-${name}`;
+        mesh.position.set(x, jawHeight / 2, z);
+        mesh.rotation.y = angle;
+        mesh.castShadow = mesh.receiveShadow = true;
+        scene.add(mesh);
+
+        const body = new CANNON.Body({ mass: 0, material: physicsMaterial });
+        body.addShape(new CANNON.Box(new CANNON.Vec3(jawWidth / 2, jawHeight / 2, jawLength / 2)));
+        body.position.set(x, jawHeight / 2, z);
+        body.quaternion.setFromEuler(0, angle, 0);
+        world.addBody(body);
+    }
+
+    for (const sx of [-1, 1]) {
+        for (const sz of [-1, 1]) {
+            addJaw(`corner-${sx}-${sz}-side`, sx * 4.86, sz * 9.12, sx * sz * 0.52);
+            addJaw(`corner-${sx}-${sz}-end`, sx * 3.98, sz * 9.98, -sx * sz * 0.52);
+        }
+    }
+    for (const sx of [-1, 1]) {
+        for (const sz of [-1, 1]) {
+            addJaw(`side-${sx}-${sz}`, sx * 4.82, sz * 0.82, sx * sz * 0.42);
+        }
     }
 }
 
