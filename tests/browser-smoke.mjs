@@ -115,7 +115,7 @@ try {
     const test = window.__POOL_TEST__;
     const corner = test.pockets.find(pocket => pocket.id === 'top-left');
     const nearMiss = test.setBallState('white', [
-      corner.x + corner.captureRadius + 0.08, 0.25, corner.z
+      corner.x + corner.captureRadius + 0.35, 0.25, corner.z
     ]);
     test.advancePhysics(90);
     const nearMissResult = {
