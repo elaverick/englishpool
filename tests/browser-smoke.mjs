@@ -84,6 +84,7 @@ try {
       cushionRailCount: test.scene.children.filter(object => object.name?.startsWith('cushion-rail-')).length,
       woodenFrameCount: test.scene.children.filter(object => object.name === 'wooden-frame-perimeter').length,
       woodenCornerSupportCount: test.scene.children.filter(object => object.name?.startsWith('wooden-corner-support-')).length,
+      woodenFrameInnerBounds: test.woodenFrameInnerBounds,
       oldSegmentedWoodRailCount: test.scene.children.filter(object => object.name?.startsWith('visual-rail-')).length,
       woodenFrameBounds: (() => {
         const frame = test.scene.children.find(object => object.name === 'wooden-frame-perimeter');
@@ -95,13 +96,6 @@ try {
           positionY: frame.position.y
         };
       })(),
-      cornerSupportHeights: test.scene.children
-        .filter(object => object.name?.startsWith('wooden-corner-support-'))
-        .map(object => ({
-          minY: object.geometry.boundingBox.min.y,
-          maxY: object.geometry.boundingBox.max.y,
-          positionY: object.position.y
-        })),
       worldSleepEnabled: test.world.allowSleep,
       contactMaterials: test.world.contactmaterials.map(contact => ({
         pair: contact.materials.map(material => material.name).sort().join(':'),
@@ -131,15 +125,14 @@ try {
   assert.equal(diagnostics.cushionBedOverlap, 0.18, 'Cushions must overlap the cloth edge to close the rail gap');
   assert.equal(diagnostics.cushionRailCount, 8, 'Expected eight continuous cushion segments');
   assert.equal(diagnostics.woodenFrameCount, 1, 'The top wooden border must be one continuous perimeter');
-  assert.equal(diagnostics.woodenCornerSupportCount, 4, 'All four pocket corners need solid timber support down to the playing surface');
+  assert.equal(diagnostics.woodenCornerSupportCount, 0, 'Pocket openings must remain clear of separate corner fill blocks');
   assert.equal(diagnostics.oldSegmentedWoodRailCount, 0, 'Separate wooden frame bars can leave open corner joints');
   assert.ok(diagnostics.woodenFrameBounds, 'Missing continuous wooden perimeter geometry');
   assert.equal(diagnostics.woodenFrameBounds.positionY, 0.012, 'Wooden perimeter must start at the playing-surface height');
-  assert.ok(
-    diagnostics.cornerSupportHeights.every(bounds =>
-      Math.abs(bounds.minY) < 1e-6 && bounds.maxY > 0.7 && Math.abs(bounds.positionY - 0.012) < 1e-6
-    ),
-    'Corner timber must extend continuously from the baize to the top frame'
+  assert.deepEqual(
+    diagnostics.woodenFrameInnerBounds,
+    { halfWidth: 5, halfLength: 10 },
+    'The continuous wooden apron must meet the outer edges of the playing surface'
   );
   assert.equal(diagnostics.worldSleepEnabled, false, 'Automatic world sleeping should remain disabled as in the original prototype');
   const expectedContacts = {
