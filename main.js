@@ -32,6 +32,7 @@ let chargePower = 0;
 let accumulator = 0;
 let lastFrameTime = 0;
 let pockets = [];
+let testCameraPose = null;
 
 const powerBarContainer = document.getElementById('power-bar-container');
 const powerBar = document.getElementById('power-bar');
@@ -57,6 +58,29 @@ function init() {
     setupStrikeDot();
     setupInput();
     window.addEventListener('pointerdown', resumeAudio, { once: true });
+    if (new URLSearchParams(window.location.search).has('test')) {
+        window.__POOL_TEST__ = {
+            ready: true,
+            scene,
+            camera,
+            renderer,
+            world,
+            get balls() { return balls; },
+            get pockets() { return pockets; },
+            setCamera(position, target, up = [0, 1, 0]) {
+                testCameraPose = {
+                    position: new THREE.Vector3(...position),
+                    target: new THREE.Vector3(...target),
+                    up: new THREE.Vector3(...up)
+                };
+                camera.position.copy(testCameraPose.position);
+                camera.up.copy(testCameraPose.up);
+                camera.lookAt(testCameraPose.target);
+                renderer.render(scene, camera);
+            }
+        };
+        document.documentElement.dataset.appReady = 'true';
+    }
 }
 
 function setupThreeJS() {
@@ -573,6 +597,12 @@ function updateTrajectory() {
 }
 
 function updateCamera() {
+    if (testCameraPose) {
+        camera.position.copy(testCameraPose.position);
+        camera.up.copy(testCameraPose.up);
+        camera.lookAt(testCameraPose.target);
+        return;
+    }
     if (!whiteBallBody) return;
     camera.position.set(
         whiteBallBody.position.x + Math.sin(cameraAngle) * Math.cos(cameraPitch) * cameraDistance,
