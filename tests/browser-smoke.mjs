@@ -94,6 +94,48 @@ try {
   assert.ok(diagnostics.pocketMouthRadii.every(radius => radius >= 0.8), 'Pocket mouths are unexpectedly narrow');
   assert.deepEqual(diagnostics.invalidGeometries, [], 'Found invalid mesh geometry');
 
+  // A ball skimming the visible mouth must remain on the bed; a ball whose
+  // centre crosses the actual throat must fall and be removed from play.
+  const pocketPhysics = await page.evaluate(() => {
+    const test = window.__POOL_TEST__;
+    const corner = test.pockets.find(pocket => pocket.id === 'top-left');
+    const side = test.pockets.find(pocket => pocket.id === 'middle-right');
+
+    const nearMiss = test.setBallState('white', [
+      corner.x + corner.captureRadius + 0.08, 0.25, corner.z
+    ]);
+    test.advancePhysics(90);
+    const nearMissResult = {
+      potted: nearMiss.potted,
+      height: nearMiss.body.position.y
+    };
+
+    const cornerBall = test.setBallState('white', [corner.x, 0.25, corner.z]);
+    test.advancePhysics(120);
+    const cornerResult = {
+      potted: cornerBall.potted,
+      pocket: cornerBall.pocket,
+      hidden: !cornerBall.mesh.visible
+    };
+
+    const sideBall = test.setBallState('red', [side.x, 0.25, side.z]);
+    test.advancePhysics(120);
+    const sideResult = {
+      potted: sideBall.potted,
+      pocket: sideBall.pocket,
+      hidden: !sideBall.mesh.visible
+    };
+    return { nearMissResult, cornerResult, sideResult };
+  });
+  assert.equal(pocketPhysics.nearMissResult.potted, false, 'A ball outside the throat was incorrectly captured');
+  assert.ok(pocketPhysics.nearMissResult.height > 0.1, 'A near-miss ball fell through the bed');
+  assert.equal(pocketPhysics.cornerResult.potted, true, 'A ball in the corner throat was not potted');
+  assert.equal(pocketPhysics.cornerResult.pocket, 'top-left', 'Corner ball was assigned to the wrong pocket');
+  assert.equal(pocketPhysics.cornerResult.hidden, true, 'Potted corner ball remained visible');
+  assert.equal(pocketPhysics.sideResult.potted, true, 'A ball in the side throat was not potted');
+  assert.equal(pocketPhysics.sideResult.pocket, 'middle-right', 'Side ball was assigned to the wrong pocket');
+  assert.equal(pocketPhysics.sideResult.hidden, true, 'Potted side ball remained visible');
+
   const test = await page.evaluateHandle(() => window.__POOL_TEST__);
   await page.evaluate(() => {
     window.__POOL_TEST__.setCamera([0, 28, 0.01], [0, 0, 0], [0, 0, -1]);
