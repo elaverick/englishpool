@@ -136,6 +136,13 @@ try {
   });
   await page.screenshot({ path: `${outputDir}/side-pocket.png`, fullPage: true });
 
+  // Low end-on view exposes the cushion-to-cloth join and the centre joint
+  // between the two halves of each end cushion.
+  await page.evaluate(() => {
+    window.__POOL_TEST__.setCamera([0, 7, 27], [0, 0, -7]);
+  });
+  await page.screenshot({ path: `${outputDir}/end-rail-profile.png`, fullPage: true });
+
   // Shot availability follows the cue ball only. Object balls may still be
   // rolling after the cue ball has stopped, and must not lock out the next shot.
   const movementState = await page.evaluate(() => {
