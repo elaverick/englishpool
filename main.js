@@ -71,6 +71,9 @@ function init() {
             get canShoot() { return Boolean(whiteBallBody && !isMoving); },
             get fixedTimeStep() { return FIXED_TIME_STEP; },
             get cushionBedOverlap() { return CUSHION_BED_OVERLAP; },
+            get woodenFrameInnerBounds() {
+                return { halfWidth: HALF_WIDTH, halfLength: HALF_LENGTH };
+            },
             refreshMovementState() {
                 updateMovementState();
                 return isMoving;
@@ -260,17 +263,17 @@ function buildPlayingSurface(material, tableMat) {
     // Shape coordinates use (x, -z), then rotate onto the XZ playing plane.
     const shape = new THREE.Shape();
     shape.moveTo(-4.05, 10.0);
-    shape.quadraticCurveTo(-5.54, 10.54, -5.0, 9.05);
+    shape.quadraticCurveTo(-3.65, 9.05, -5.0, 9.05);
     shape.lineTo(-5.0, 0.62);
     shape.quadraticCurveTo(-3.7, 0.0, -5.0, -0.62);
     shape.lineTo(-5.0, -9.05);
-    shape.quadraticCurveTo(-5.54, -10.54, -4.05, -10.0);
+    shape.quadraticCurveTo(-3.65, -9.05, -4.05, -10.0);
     shape.lineTo(4.05, -10.0);
-    shape.quadraticCurveTo(5.54, -10.54, 5.0, -9.05);
+    shape.quadraticCurveTo(3.65, -9.05, 5.0, -9.05);
     shape.lineTo(5.0, -0.62);
     shape.quadraticCurveTo(3.7, 0.0, 5.0, 0.62);
     shape.lineTo(5.0, 9.05);
-    shape.quadraticCurveTo(5.54, 10.54, 4.05, 10.0);
+    shape.quadraticCurveTo(3.65, 9.05, 4.05, 10.0);
     shape.closePath();
 
     const geometry = new THREE.ShapeGeometry(shape, 24);
@@ -384,8 +387,8 @@ function buildWoodenFrame(material) {
     const topY = 0.74;
     const frameOuterHalfWidth = HALF_WIDTH + 1;
     const frameOuterHalfLength = HALF_LENGTH + 1;
-    const frameInnerHalfWidth = frameOuterHalfWidth - 0.46;
-    const frameInnerHalfLength = frameOuterHalfLength - 0.46;
+    const frameInnerHalfWidth = HALF_WIDTH;
+    const frameInnerHalfLength = HALF_LENGTH;
     const extrusionDepth = topY - surfaceY;
 
     const perimeter = new THREE.Shape();
@@ -423,25 +426,7 @@ function buildWoodenFrame(material) {
 
     addTimberPiece(perimeter, 'wooden-frame-perimeter');
 
-    // The baize outline deliberately cuts back at each corner pocket. Fill
-    // the timber behind that curved opening from the inner frame corner to
-    // the exact cloth boundary, leaving the pocket throat itself open.
-    for (const mirrorX of [1, -1]) {
-        for (const mirrorY of [1, -1]) {
-            const x = value => value * mirrorX;
-            const y = value => value * mirrorY;
-            const support = new THREE.Shape();
-            support.moveTo(x(-5.64), y(10.64));
-            support.lineTo(x(-4.05), y(10.0));
-            support.quadraticCurveTo(
-                x(-5.54), y(10.54),
-                x(-5.0), y(9.05)
-            );
-            support.lineTo(x(-5.64), y(9.05));
-            support.closePath();
-            addTimberPiece(support, `wooden-corner-support-${mirrorX}-${mirrorY}`);
-        }
-    }
+
 }
 
 function addSight(x, z, material) {
