@@ -67,6 +67,11 @@ function init() {
             world,
             get balls() { return balls; },
             get pockets() { return pockets; },
+            get isMoving() { return isMoving; },
+            refreshMovementState() {
+                updateMovementState();
+                return isMoving;
+            },
             setBallState(type, position, velocity = [0, 0, 0]) {
                 const ball = balls.find(candidate => candidate.type === type && !candidate.potted);
                 if (!ball) throw new Error(`No active ${type} ball available`);
@@ -143,14 +148,15 @@ function setupPhysicsMaterials() {
     const ballMat = new CANNON.Material('ball');
     const tableMat = new CANNON.Material('table');
     const cushionMat = new CANNON.Material('cushion');
+    // Preserve the tuned contact response from the original prototype.
     world.addContactMaterial(new CANNON.ContactMaterial(ballMat, ballMat, {
-        friction: 0.08, restitution: 0.92
+        friction: 0.1, restitution: 0.9
     }));
     world.addContactMaterial(new CANNON.ContactMaterial(ballMat, tableMat, {
-        friction: 0.38, restitution: 0.05
+        friction: 0.4, restitution: 0.1
     }));
     world.addContactMaterial(new CANNON.ContactMaterial(ballMat, cushionMat, {
-        friction: 0.12, restitution: 0.78
+        friction: 0.1, restitution: 0.8
     }));
     return { ballMat, tableMat, cushionMat };
 }
@@ -383,16 +389,23 @@ function buildBalls(ballPhysMat) {
             shape: new CANNON.Sphere(BALL_RADIUS),
             position: new CANNON.Vec3(x, BALL_RADIUS, z),
             material: ballPhysMat,
-            linearDamping: 0.12,
-            angularDamping: 0.04,
+            linearDamping: 0.5,
+            angularDamping: 0.1,
             allowSleep: true,
             sleepSpeedLimit: 0.08,
             sleepTimeLimit: 0.5
         });
         world.addBody(body);
+        // Retain the original collision character, including the softer
+        // response for cushion impacts.
         body.addEventListener('collide', event => {
-            const impact = Math.abs(event.contact.getImpactVelocityAlongNormal());
-            playImpactSound(impact, body.position);
+            const contact = event.contact;
+            const impact = Math.abs(contact.getImpactVelocityAlongNormal());
+            const position = body.position;
+            const cushionHit = contact.bi.material?.name === 'cushion' ||
+                contact.bj.material?.name === 'cushion';
+            const adjustedImpact = cushionHit ? impact * 0.6 : impact;
+            playImpactSound(adjustedImpact, position.x, position.y, position.z);
         });
         const ball = { type, mesh, body, potted: false };
         balls.push(ball);
@@ -418,23 +431,65 @@ function buildBalls(ballPhysMat) {
     }
 }
 
-function playImpactSound(strength, position) {
-    if (!audioCtx || strength < 0.03) return;
-    const now = audioCtx.currentTime;
-    const duration = Math.min(0.18, 0.045 + strength * 0.025);
-    const master = audioCtx.createGain();
-    master.gain.setValueAtTime(Math.min(0.25, 0.035 + strength * 0.035), now);
-    master.gain.exponentialRampToValueAtTime(0.0001, now + duration);
-    master.connect(audioCtx.destination);
-    const oscillator = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
-    oscillator.type = 'triangle';
-    oscillator.frequency.setValueAtTime(650 + Math.min(strength, 10) * 95, now);
-    gain.gain.setValueAtTime(0.5, now);
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
-    oscillator.connect(gain).connect(master);
-    oscillator.start(now);
-    oscillator.stop(now + duration);
+function playImpactSound(impactStrength, x, y, z) {
+    if (!audioCtx || impactStrength < 0.03) return;
+
+    const ctx = audioCtx;
+    const duration = 0.06 + impactStrength * 0.03;
+
+    const panner = ctx.createPanner();
+    panner.panningModel = 'HRTF';
+    panner.positionX.value = x;
+    panner.positionY.value = y;
+    panner.positionZ.value = z;
+
+    const master = ctx.createGain();
+    master.gain.value = 0.15 + impactStrength * 0.35;
+    master.connect(panner).connect(ctx.destination);
+
+    // Broadband transient with three resonant modes gives the collision its
+    // short wooden/phenolic clack rather than a pitched electronic pop.
+    const noise = ctx.createBufferSource();
+    const noiseBuffer = ctx.createBuffer(1, Math.max(1, Math.floor(ctx.sampleRate * duration)), ctx.sampleRate);
+    const samples = noiseBuffer.getChannelData(0);
+    for (let i = 0; i < samples.length; i++) samples[i] = Math.random() * 2 - 1;
+    noise.buffer = noiseBuffer;
+
+    function mode(frequency, q, gainValue, decay) {
+        const bandpass = ctx.createBiquadFilter();
+        bandpass.type = 'bandpass';
+        bandpass.frequency.value = frequency;
+        bandpass.Q.value = q;
+
+        const gain = ctx.createGain();
+        const now = ctx.currentTime;
+        gain.gain.setValueAtTime(0.00001, now);
+        gain.gain.exponentialRampToValueAtTime(gainValue, now + 0.002);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + decay);
+        bandpass.connect(gain).connect(master);
+        return bandpass;
+    }
+
+    const impact = impactStrength;
+    const resonance1 = mode(430 + impact * 40, 0.7, 0.08 + impact * 0.1, duration);
+    const resonance2 = mode(900 + impact * 60, 0.9, 0.05 + impact * 0.08, duration * 0.8);
+    const resonance3 = mode(1500 + impact * 80, 1.0, 0.03 + impact * 0.06, duration * 0.6);
+    noise.connect(resonance1);
+    noise.connect(resonance2);
+    noise.connect(resonance3);
+
+    const click = ctx.createOscillator();
+    const clickGain = ctx.createGain();
+    click.type = 'square';
+    click.frequency.setValueAtTime(2800, ctx.currentTime);
+    clickGain.gain.setValueAtTime(0.002 + impact * 0.008, ctx.currentTime);
+    clickGain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.01);
+    click.connect(clickGain).connect(master);
+    click.start();
+    click.stop(ctx.currentTime + 0.02);
+
+    noise.start();
+    noise.stop(ctx.currentTime + duration);
 }
 
 function setupTrajectoryVisuals() {
@@ -568,12 +623,9 @@ function updatePocketing() {
 }
 
 function updateMovementState() {
-    isMoving = balls.some(ball => {
-        if (ball.potted) return false;
-        const body = ball.body;
-        return body.sleepState !== CANNON.Body.SLEEPING &&
-            (body.velocity.lengthSquared() > 0.0004 || body.angularVelocity.lengthSquared() > 0.0025);
-    });
+    // Match the original game rule: shot availability follows the cue ball,
+    // not every object ball still rolling elsewhere on the table.
+    isMoving = Boolean(whiteBallBody && whiteBallBody.velocity.length() > 0.01);
 }
 
 function updateTrajectory() {
