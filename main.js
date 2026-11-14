@@ -305,7 +305,7 @@ function createPockets(black) {
 function addRailSegment(x, z, width, length, angle, material, physicsMaterial) {
     // A single softly rounded cushion segment. Rounded plan-view ends avoid
     // attaching separate jaw blocks around each pocket.
-    const radius = Math.min(0.2, width * 0.22, length * 0.12);
+    const radius = Math.min(0.34, width * 0.48, length * 0.12);
     const halfW = width / 2;
     const halfL = length / 2;
     const shape = new THREE.Shape();
