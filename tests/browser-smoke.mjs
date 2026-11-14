@@ -94,53 +94,6 @@ try {
   assert.ok(diagnostics.pocketMouthRadii.every(radius => radius >= 0.8), 'Pocket mouths are unexpectedly narrow');
   assert.deepEqual(diagnostics.invalidGeometries, [], 'Found invalid mesh geometry');
 
-  // A ball skimming the visible mouth must remain on the bed; a ball whose
-  // centre crosses the actual throat must fall and be removed from play.
-  const pocketPhysics = await page.evaluate(() => {
-    const test = window.__POOL_TEST__;
-    const corner = test.pockets.find(pocket => pocket.id === 'top-left');
-    const side = test.pockets.find(pocket => pocket.id === 'middle-right');
-
-    const nearMiss = test.setBallState('white', [
-      corner.x + corner.captureRadius + 0.08, 0.25, corner.z
-    ]);
-    test.advancePhysics(90);
-    const nearMissResult = {
-      potted: nearMiss.potted,
-      height: nearMiss.body.position.y
-    };
-
-    const cornerBall = test.setBallState('white', [corner.x, 0.25, corner.z]);
-    test.advancePhysics(120);
-    const cornerResult = {
-      potted: cornerBall.potted,
-      pocket: cornerBall.pocket,
-      hidden: !cornerBall.mesh.visible,
-      position: [cornerBall.body.position.x, cornerBall.body.position.y, cornerBall.body.position.z],
-      velocity: [cornerBall.body.velocity.x, cornerBall.body.velocity.y, cornerBall.body.velocity.z]
-    };
-
-    const sideBall = test.setBallState('red', [side.x, 0.25, side.z]);
-    test.advancePhysics(120);
-    const sideResult = {
-      potted: sideBall.potted,
-      pocket: sideBall.pocket,
-      hidden: !sideBall.mesh.visible,
-      position: [sideBall.body.position.x, sideBall.body.position.y, sideBall.body.position.z],
-      velocity: [sideBall.body.velocity.x, sideBall.body.velocity.y, sideBall.body.velocity.z]
-    };
-    return { nearMissResult, cornerResult, sideResult };
-  });
-  console.log('Pocket physics diagnostics:', JSON.stringify(pocketPhysics));
-  assert.equal(pocketPhysics.nearMissResult.potted, false, 'A ball outside the throat was incorrectly captured');
-  assert.ok(pocketPhysics.nearMissResult.height > 0.1, 'A near-miss ball fell through the bed');
-  assert.equal(pocketPhysics.cornerResult.potted, true, 'A ball in the corner throat was not potted');
-  assert.equal(pocketPhysics.cornerResult.pocket, 'top-left', 'Corner ball was assigned to the wrong pocket');
-  assert.equal(pocketPhysics.cornerResult.hidden, true, 'Potted corner ball remained visible');
-  assert.equal(pocketPhysics.sideResult.potted, true, 'A ball in the side throat was not potted');
-  assert.equal(pocketPhysics.sideResult.pocket, 'middle-right', 'Side ball was assigned to the wrong pocket');
-  assert.equal(pocketPhysics.sideResult.hidden, true, 'Potted side ball remained visible');
-
   const test = await page.evaluateHandle(() => window.__POOL_TEST__);
   await page.evaluate(() => {
     window.__POOL_TEST__.setCamera([0, 28, 0.01], [0, 0, 0], [0, 0, -1]);
@@ -156,6 +109,50 @@ try {
     window.__POOL_TEST__.setCamera([-15, 10, 0], [-4.4, 0, 0]);
   });
   await page.screenshot({ path: `${outputDir}/side-pocket.png`, fullPage: true });
+
+  // Exercise every pocket throat after capturing the clean starting-table screenshots.
+  const pocketPhysics = await page.evaluate(() => {
+    const test = window.__POOL_TEST__;
+    const corner = test.pockets.find(pocket => pocket.id === 'top-left');
+    const nearMiss = test.setBallState('white', [
+      corner.x + corner.captureRadius + 0.08, 0.25, corner.z
+    ]);
+    test.advancePhysics(90);
+    const nearMissResult = {
+      potted: nearMiss.potted,
+      height: nearMiss.body.position.y
+    };
+
+    const scenarios = [
+      ['white', 'top-left'],
+      ['red', 'middle-right'],
+      ['yellow', 'top-right'],
+      ['red', 'middle-left'],
+      ['yellow', 'bottom-left'],
+      ['red', 'bottom-right']
+    ];
+    const captures = scenarios.map(([type, pocketId]) => {
+      const pocket = test.pockets.find(candidate => candidate.id === pocketId);
+      const ball = test.setBallState(type, [pocket.x, 0.25, pocket.z]);
+      test.advancePhysics(120);
+      return {
+        expectedPocket: pocketId,
+        potted: ball.potted,
+        pocket: ball.pocket,
+        hidden: !ball.mesh.visible
+      };
+    });
+    return { nearMissResult, captures };
+  });
+  console.log('Pocket physics diagnostics:', JSON.stringify(pocketPhysics));
+  assert.equal(pocketPhysics.nearMissResult.potted, false, 'A ball outside the throat was incorrectly captured');
+  assert.ok(pocketPhysics.nearMissResult.height > 0.1, 'A near-miss ball fell through the bed');
+  assert.equal(pocketPhysics.captures.length, 6, 'Expected six pocket capture scenarios');
+  for (const capture of pocketPhysics.captures) {
+    assert.equal(capture.potted, true, `Ball was not potted at ${capture.expectedPocket}`);
+    assert.equal(capture.pocket, capture.expectedPocket, `Ball was assigned to the wrong pocket at ${capture.expectedPocket}`);
+    assert.equal(capture.hidden, true, `Potted ball remained visible at ${capture.expectedPocket}`);
+  }
 
   assert.deepEqual(pageErrors, [], 'Browser threw JavaScript exceptions');
   assert.deepEqual(consoleErrors, [], 'Browser reported console errors');
