@@ -68,6 +68,7 @@ function init() {
             get balls() { return balls; },
             get pockets() { return pockets; },
             get isMoving() { return isMoving; },
+            get canShoot() { return Boolean(whiteBallBody && !isMoving); },
             refreshMovementState() {
                 updateMovementState();
                 return isMoving;
