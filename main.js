@@ -260,17 +260,17 @@ function buildPlayingSurface(material, tableMat) {
     // Shape coordinates use (x, -z), then rotate onto the XZ playing plane.
     const shape = new THREE.Shape();
     shape.moveTo(-4.05, 10.0);
-    shape.quadraticCurveTo(-3.65, 9.05, -5.0, 9.05);
+    shape.quadraticCurveTo(-5.54, 10.54, -5.0, 9.05);
     shape.lineTo(-5.0, 0.62);
     shape.quadraticCurveTo(-3.7, 0.0, -5.0, -0.62);
     shape.lineTo(-5.0, -9.05);
-    shape.quadraticCurveTo(-3.65, -9.05, -4.05, -10.0);
+    shape.quadraticCurveTo(-5.54, -10.54, -4.05, -10.0);
     shape.lineTo(4.05, -10.0);
-    shape.quadraticCurveTo(3.65, -9.05, 5.0, -9.05);
+    shape.quadraticCurveTo(5.54, -10.54, 5.0, -9.05);
     shape.lineTo(5.0, -0.62);
     shape.quadraticCurveTo(3.7, 0.0, 5.0, 0.62);
     shape.lineTo(5.0, 9.05);
-    shape.quadraticCurveTo(3.65, 9.05, 4.05, 10.0);
+    shape.quadraticCurveTo(5.54, 10.54, 4.05, 10.0);
     shape.closePath();
 
     const geometry = new THREE.ShapeGeometry(shape, 24);
@@ -434,7 +434,7 @@ function buildWoodenFrame(material) {
             support.moveTo(x(-5.64), y(10.64));
             support.lineTo(x(-4.05), y(10.0));
             support.quadraticCurveTo(
-                x(-3.65), y(9.05),
+                x(-5.54), y(10.54),
                 x(-5.0), y(9.05)
             );
             support.lineTo(x(-5.64), y(9.05));
