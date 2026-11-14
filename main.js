@@ -142,6 +142,7 @@ function buildTable(mats) {
     const wood = new THREE.MeshStandardMaterial({ color: 0x392316, roughness: 0.34 });
     const cushionVisual = new THREE.MeshStandardMaterial({ color: 0x24402d, roughness: 0.72 });
     const black = new THREE.MeshStandardMaterial({ color: 0x050606, roughness: 0.98 });
+    const brass = new THREE.MeshStandardMaterial({ color: 0xb18a4b, metalness: 0.65, roughness: 0.3 }); // rail sights only
 
     const cabinet = new THREE.Mesh(
         new THREE.BoxGeometry(TABLE_WIDTH + 2, 0.8, TABLE_LENGTH + 2), wood
