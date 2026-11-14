@@ -208,7 +208,7 @@ function buildTable(mats) {
     for (const sx of [-1, 1]) {
         for (const interval of sideIntervals) {
             addRailSegment(
-                sx * (HALF_WIDTH + 0.34), (interval[0] + interval[1]) / 2,
+                sx * (HALF_WIDTH + 0.30), (interval[0] + interval[1]) / 2,
                 CUSHION_THICKNESS, interval[1] - interval[0], 0,
                 cushionVisual, mats.cushionMat
             );
@@ -216,8 +216,13 @@ function buildTable(mats) {
     }
     for (const sz of [-1, 1]) {
         for (const sx of [-1, 1]) {
-            addRailSegment(sx * 1.9, sz * (HALF_LENGTH + 0.34), 3.8, CUSHION_THICKNESS,
-                0, cushionVisual, mats.cushionMat);
+            addRailSegment(sx * 1.9, sz * (HALF_LENGTH + 0.30), 3.8, CUSHION_THICKNESS,
+                0, cushionVisual, mats.cushionMat, {
+                    // The inner ends meet squarely at the table centre. Only
+                    // the outer, pocket-facing ends receive rounded noses.
+                    roundWidthStart: sx < 0,
+                    roundWidthEnd: sx > 0
+                });
         }
     }
 
@@ -309,22 +314,39 @@ function createPockets(black) {
     }
 }
 
-function addRailSegment(x, z, width, length, angle, material, physicsMaterial) {
-    // A single softly rounded cushion segment. Rounded plan-view ends avoid
-    // attaching separate jaw blocks around each pocket.
-    const radius = Math.min(0.34, width * 0.48, length * 0.12);
+function addRailSegment(
+    x, z, width, length, angle, material, physicsMaterial,
+    {
+        roundWidthStart = true,
+        roundWidthEnd = true,
+        roundLengthStart = true,
+        roundLengthEnd = true
+    } = {}
+) {
+    // Rounded noses are used only where a cushion terminates at a pocket.
+    // Butt joints between matching end cushions stay square and continuous.
+    const radius = Math.min(0.34, width * 0.48, length * 0.48);
     const halfW = width / 2;
     const halfL = length / 2;
+    const rBL = roundWidthStart && roundLengthStart ? radius : 0;
+    const rBR = roundWidthEnd && roundLengthStart ? radius : 0;
+    const rTR = roundWidthEnd && roundLengthEnd ? radius : 0;
+    const rTL = roundWidthStart && roundLengthEnd ? radius : 0;
+
     const shape = new THREE.Shape();
-    shape.moveTo(-halfW + radius, -halfL);
-    shape.lineTo(halfW - radius, -halfL);
-    shape.quadraticCurveTo(halfW, -halfL, halfW, -halfL + radius);
-    shape.lineTo(halfW, halfL - radius);
-    shape.quadraticCurveTo(halfW, halfL, halfW - radius, halfL);
-    shape.lineTo(-halfW + radius, halfL);
-    shape.quadraticCurveTo(-halfW, halfL, -halfW, halfL - radius);
-    shape.lineTo(-halfW, -halfL + radius);
-    shape.quadraticCurveTo(-halfW, -halfL, -halfW + radius, -halfL);
+    shape.moveTo(-halfW + rBL, -halfL);
+    shape.lineTo(halfW - rBR, -halfL);
+    if (rBR) shape.quadraticCurveTo(halfW, -halfL, halfW, -halfL + rBR);
+    else shape.lineTo(halfW, -halfL);
+    shape.lineTo(halfW, halfL - rTR);
+    if (rTR) shape.quadraticCurveTo(halfW, halfL, halfW - rTR, halfL);
+    else shape.lineTo(halfW, halfL);
+    shape.lineTo(-halfW + rTL, halfL);
+    if (rTL) shape.quadraticCurveTo(-halfW, halfL, -halfW, halfL - rTL);
+    else shape.lineTo(-halfW, halfL);
+    shape.lineTo(-halfW, -halfL + rBL);
+    if (rBL) shape.quadraticCurveTo(-halfW, -halfL, -halfW + rBL, -halfL);
+    else shape.lineTo(-halfW, -halfL);
     shape.closePath();
 
     const geometry = new THREE.ExtrudeGeometry(shape, {
@@ -353,7 +375,6 @@ function addRailSegment(x, z, width, length, angle, material, physicsMaterial) {
     body.quaternion.setFromEuler(0, angle, 0);
     world.addBody(body);
 }
-
 
 function addVisualRail(x, z, width, length, material) {
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(width, 0.32, length), material);
