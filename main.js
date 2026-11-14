@@ -67,6 +67,25 @@ function init() {
             world,
             get balls() { return balls; },
             get pockets() { return pockets; },
+            setBallState(type, position, velocity = [0, 0, 0]) {
+                const ball = balls.find(candidate => candidate.type === type && !candidate.potted);
+                if (!ball) throw new Error(`No active ${type} ball available`);
+                ball.body.position.set(...position);
+                ball.body.velocity.set(...velocity);
+                ball.body.angularVelocity.set(0, 0, 0);
+                ball.body.wakeUp();
+                ball.mesh.position.copy(ball.body.position);
+                return ball;
+            },
+            advancePhysics(steps = 120) {
+                for (let i = 0; i < steps; i++) {
+                    world.step(FIXED_TIME_STEP);
+                    updatePocketing();
+                }
+                for (const ball of balls) {
+                    if (!ball.potted) ball.mesh.position.copy(ball.body.position);
+                }
+            },
             setCamera(position, target, up = [0, 1, 0]) {
                 testCameraPose = {
                     position: new THREE.Vector3(...position),
@@ -261,12 +280,12 @@ function buildPlayingSurface(material, tableMat) {
 
 function createPockets(black) {
     pockets = [
-        { id: 'top-left', type: 'corner', x: -4.55, z: -9.55, mouthRadius: 0.88 },
-        { id: 'top-right', type: 'corner', x: 4.55, z: -9.55, mouthRadius: 0.88 },
-        { id: 'middle-left', type: 'side', x: -4.15, z: 0, mouthRadius: 0.85 },
-        { id: 'middle-right', type: 'side', x: 4.15, z: 0, mouthRadius: 0.85 },
-        { id: 'bottom-left', type: 'corner', x: -4.55, z: 9.55, mouthRadius: 0.88 },
-        { id: 'bottom-right', type: 'corner', x: 4.55, z: 9.55, mouthRadius: 0.88 }
+        { id: 'top-left', type: 'corner', x: -4.55, z: -9.55, mouthRadius: 0.88, captureRadius: 0.61 },
+        { id: 'top-right', type: 'corner', x: 4.55, z: -9.55, mouthRadius: 0.88, captureRadius: 0.61 },
+        { id: 'middle-left', type: 'side', x: -4.15, z: 0, mouthRadius: 0.85, captureRadius: 0.59 },
+        { id: 'middle-right', type: 'side', x: 4.15, z: 0, mouthRadius: 0.85, captureRadius: 0.59 },
+        { id: 'bottom-left', type: 'corner', x: -4.55, z: 9.55, mouthRadius: 0.88, captureRadius: 0.61 },
+        { id: 'bottom-right', type: 'corner', x: 4.55, z: 9.55, mouthRadius: 0.88, captureRadius: 0.61 }
     ];
 
     const linerMaterial = new THREE.MeshStandardMaterial({
@@ -584,15 +603,22 @@ function updatePocketing() {
     for (const ball of balls) {
         if (ball.potted) continue;
         const p = ball.body.position;
+        // Capture is based on the usable throat, not the decorative outer
+        // mouth. The ball must enter far enough for its centre to clear the
+        // cushion noses; merely grazing the mouth no longer creates suction.
         const pocket = pockets.find(candidate =>
-            Math.hypot(p.x - candidate.x, p.z - candidate.z) < POCKET_CAPTURE_RADIUS
+            Math.hypot(p.x - candidate.x, p.z - candidate.z) < candidate.captureRadius
         );
         if (!pocket) continue;
 
-        // The bed has no collision shape under the pocket aperture. Once the
-        // ball centre enters the capture zone it drops through the pocket.
-        ball.body.position.y -= 0.035;
-        ball.body.velocity.scale(0.92, ball.body.velocity);
+        // Once the centre crosses the throat, remove the bed support and let
+        // gravity carry the ball below the cabinet. Damping prevents a fast
+        // ball from skating across the liner while it falls.
+        ball.body.velocity.x *= 0.88;
+        ball.body.velocity.z *= 0.88;
+        if (ball.body.position.y > -POCKET_DROP_DEPTH) {
+            ball.body.velocity.y = Math.min(ball.body.velocity.y, -1.2);
+        }
         if (ball.body.position.y < BALL_RADIUS - POCKET_DROP_DEPTH) {
             ball.potted = true;
             ball.pocket = pocket.id;
