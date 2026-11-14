@@ -14,6 +14,7 @@ const POCKET_CAPTURE_RADIUS = 0.67;
 const POCKET_DROP_DEPTH = 0.9;
 const CUSHION_HEIGHT = 0.68;
 const CUSHION_THICKNESS = 0.72;
+const CUSHION_BED_OVERLAP = 0.18;
 
 let scene, camera, renderer, world, audioCtx;
 let balls = [];
@@ -69,6 +70,7 @@ function init() {
             get isMoving() { return isMoving; },
             get canShoot() { return Boolean(whiteBallBody && !isMoving); },
             get fixedTimeStep() { return FIXED_TIME_STEP; },
+            get cushionBedOverlap() { return CUSHION_BED_OVERLAP; },
             refreshMovementState() {
                 updateMovementState();
                 return isMoving;
@@ -208,7 +210,7 @@ function buildTable(mats) {
     for (const sx of [-1, 1]) {
         for (const interval of sideIntervals) {
             addRailSegment(
-                sx * (HALF_WIDTH + 0.30), (interval[0] + interval[1]) / 2,
+                sx * (HALF_WIDTH + CUSHION_THICKNESS / 2 - CUSHION_BED_OVERLAP), (interval[0] + interval[1]) / 2,
                 CUSHION_THICKNESS, interval[1] - interval[0], 0,
                 cushionVisual, mats.cushionMat
             );
@@ -216,7 +218,7 @@ function buildTable(mats) {
     }
     for (const sz of [-1, 1]) {
         for (const sx of [-1, 1]) {
-            addRailSegment(sx * 1.9, sz * (HALF_LENGTH + 0.30), 3.8, CUSHION_THICKNESS,
+            addRailSegment(sx * 1.9, sz * (HALF_LENGTH + CUSHION_THICKNESS / 2 - CUSHION_BED_OVERLAP), 3.8, CUSHION_THICKNESS,
                 0, cushionVisual, mats.cushionMat, {
                     // The inner ends meet squarely at the table centre. Only
                     // the outer, pocket-facing ends receive rounded noses.
@@ -359,6 +361,7 @@ function addRailSegment(
     geometry.computeVertexNormals();
 
     const mesh = new THREE.Mesh(geometry, material);
+    mesh.name = `cushion-rail-${x.toFixed(2)}-${z.toFixed(2)}`;
     mesh.position.set(x, CUSHION_HEIGHT / 2, z);
     mesh.rotation.y = angle;
     mesh.castShadow = mesh.receiveShadow = true;
