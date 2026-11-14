@@ -369,16 +369,16 @@ function buildPocketJaws(material, physicsMaterial) {
     for (const sx of [-1, 1]) {
         for (const sz of [-1, 1]) {
             addWedge(`corner-${sx}-${sz}-side`, [
-                [sx * 4.98, sz * 8.72],
-                [sx * 5.48, sz * 8.72],
-                [sx * 5.48, sz * 9.55],
-                [sx * 4.43, sz * 9.22]
+                [sx * 4.98, sz * 8.88],
+                [sx * 5.12, sz * 8.88],
+                [sx * 4.58, sz * 9.42],
+                [sx * 4.40, sz * 9.25]
             ]);
             addWedge(`corner-${sx}-${sz}-end`, [
-                [sx * 3.72, sz * 9.98],
-                [sx * 4.55, sz * 9.98],
-                [sx * 4.92, sz * 10.48],
-                [sx * 4.28, sz * 9.22]
+                [sx * 3.88, sz * 9.98],
+                [sx * 4.02, sz * 9.98],
+                [sx * 4.58, sz * 9.42],
+                [sx * 4.40, sz * 9.25]
             ]);
         }
     }
@@ -388,9 +388,9 @@ function buildPocketJaws(material, physicsMaterial) {
         for (const sz of [-1, 1]) {
             addWedge(`side-${sx}-${sz}`, [
                 [sx * 4.98, sz * 0.82],
-                [sx * 5.48, sz * 0.82],
-                [sx * 5.48, sz * 1.34],
-                [sx * 4.28, sz * 0.43]
+                [sx * 5.12, sz * 0.82],
+                [sx * 4.36, sz * 0.40],
+                [sx * 4.16, sz * 0.48]
             ]);
         }
     }
