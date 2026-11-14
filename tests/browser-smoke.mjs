@@ -88,9 +88,9 @@ try {
   assert.equal(diagnostics.ballCount, 16, 'Expected cue ball plus fifteen object balls');
   assert.equal(diagnostics.pocketCount, 6, 'Expected six pocket definitions');
   assert.equal(diagnostics.pocketLinerCount, 6, 'Expected six recessed pocket liners');
-  assert.equal(diagnostics.pocketRimCount, 6, 'Expected six visible pocket rims');
-  assert.equal(diagnostics.pocketJawMeshCount, 12, 'Expected two visible jaws per pocket');
-  assert.equal(diagnostics.pocketJawBodyCount, 12, 'Expected matching collision bodies for all jaws');
+  assert.equal(diagnostics.pocketRimCount, 0, 'Pocket openings should not have decorative raised rings');
+  assert.equal(diagnostics.pocketJawMeshCount, 0, 'Pocket transitions should not use separate jaw blocks');
+  assert.equal(diagnostics.pocketJawBodyCount, 0, 'Pocket transitions should not use separate jaw collision bodies');
   assert.ok(diagnostics.pocketMouthRadii.every(radius => radius >= 0.8), 'Pocket mouths are unexpectedly narrow');
   assert.deepEqual(diagnostics.invalidGeometries, [], 'Found invalid mesh geometry');
 
