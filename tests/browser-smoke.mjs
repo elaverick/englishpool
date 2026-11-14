@@ -71,6 +71,7 @@ try {
       meshCount,
       ballCount: test.balls.length,
       pocketCount: test.pockets.length,
+      pocketFloorCount: test.scene.children.filter(object => object.name?.startsWith('pocket-floor-')).length,
       pocketLinerCount: test.scene.children.filter(object => object.name?.startsWith('pocket-liner-')).length,
       pocketRimCount: test.scene.children.filter(object => object.name?.startsWith('pocket-rim-')).length,
       pocketJawMeshCount: test.scene.children.filter(object => object.name?.startsWith('pocket-jaw-')).length,
@@ -87,7 +88,8 @@ try {
   assert.ok(diagnostics.meshCount > 0, 'Scene contains no meshes');
   assert.equal(diagnostics.ballCount, 16, 'Expected cue ball plus fifteen object balls');
   assert.equal(diagnostics.pocketCount, 6, 'Expected six pocket definitions');
-  assert.equal(diagnostics.pocketLinerCount, 6, 'Expected six recessed pocket liners');
+  assert.equal(diagnostics.pocketFloorCount, 6, 'Expected six recessed pocket wells');
+  assert.equal(diagnostics.pocketLinerCount, 0, 'Pocket wells should not use exposed cylindrical liners');
   assert.equal(diagnostics.pocketRimCount, 0, 'Pocket openings should not have decorative raised rings');
   assert.equal(diagnostics.pocketJawMeshCount, 0, 'Pocket transitions should not use separate jaw blocks');
   assert.equal(diagnostics.pocketJawBodyCount, 0, 'Pocket transitions should not use separate jaw collision bodies');
