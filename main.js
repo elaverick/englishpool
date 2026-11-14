@@ -8,7 +8,7 @@ const HALF_WIDTH = TABLE_WIDTH / 2;
 const HALF_LENGTH = TABLE_LENGTH / 2;
 const MAX_POWER = 12;
 const MAX_SPIN_RADIUS = BALL_RADIUS * 0.75;
-const FIXED_TIME_STEP = 1 / 120;
+const FIXED_TIME_STEP = 1 / 60;
 const MAX_FRAME_DELTA = 0.05;
 const POCKET_CAPTURE_RADIUS = 0.67;
 const POCKET_DROP_DEPTH = 0.9;
@@ -44,8 +44,7 @@ function init() {
     setupThreeJS();
     setupLights();
     world = new CANNON.World({
-        gravity: new CANNON.Vec3(0, -9.82, 0),
-        allowSleep: true
+        gravity: new CANNON.Vec3(0, -9.82, 0)
     });
     world.broadphase = new CANNON.SAPBroadphase(world);
     world.solver.iterations = 12;
@@ -69,6 +68,7 @@ function init() {
             get pockets() { return pockets; },
             get isMoving() { return isMoving; },
             get canShoot() { return Boolean(whiteBallBody && !isMoving); },
+            get fixedTimeStep() { return FIXED_TIME_STEP; },
             refreshMovementState() {
                 updateMovementState();
                 return isMoving;
@@ -391,10 +391,7 @@ function buildBalls(ballPhysMat) {
             position: new CANNON.Vec3(x, BALL_RADIUS, z),
             material: ballPhysMat,
             linearDamping: 0.5,
-            angularDamping: 0.1,
-            allowSleep: true,
-            sleepSpeedLimit: 0.08,
-            sleepTimeLimit: 0.5
+            angularDamping: 0.1
         });
         world.addBody(body);
         // Retain the original collision character, including the softer
