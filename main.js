@@ -249,17 +249,17 @@ function buildPlayingSurface(material, tableMat) {
     // Shape coordinates use (x, -z), then rotate onto the XZ playing plane.
     const shape = new THREE.Shape();
     shape.moveTo(-3.75, 10.0);
-    shape.quadraticCurveTo(-3.525, 8.525, -5.0, 8.75);
+    shape.quadraticCurveTo(-4.225, 9.725, -5.0, 8.75);
     shape.lineTo(-5.0, 0.82);
     shape.quadraticCurveTo(-3.2, 0.0, -5.0, -0.85);
     shape.lineTo(-5.0, -8.75);
-    shape.quadraticCurveTo(-3.525, -8.525, -3.75, -10.0);
+    shape.quadraticCurveTo(-4.225, -9.725, -3.75, -10.0);
     shape.lineTo(3.75, -10.0);
-    shape.quadraticCurveTo(3.525, -8.525, 5.0, -8.75);
+    shape.quadraticCurveTo(4.225, -9.725, 5.0, -8.75);
     shape.lineTo(5.0, -0.82);
     shape.quadraticCurveTo(3.2, 0.0, 5.0, 0.85);
     shape.lineTo(5.0, 8.75);
-    shape.quadraticCurveTo(3.525, 8.525, 3.75, 10.0);
+    shape.quadraticCurveTo(4.225, 9.725, 3.75, 10.0);
     shape.closePath();
 
     const geometry = new THREE.ShapeGeometry(shape, 24);
