@@ -79,6 +79,8 @@ try {
       pocketMouthRadii: test.pockets.map(pocket => pocket.mouthRadius),
       ballLinearDamping: test.balls[0].body.linearDamping,
       ballAngularDamping: test.balls[0].body.angularDamping,
+      fixedTimeStep: test.fixedTimeStep,
+      worldSleepEnabled: test.world.allowSleep,
       contactMaterials: test.world.contactmaterials.map(contact => ({
         pair: contact.materials.map(material => material.name).sort().join(':'),
         friction: contact.friction,
@@ -103,6 +105,8 @@ try {
   assert.ok(diagnostics.pocketMouthRadii.every(radius => radius >= 0.6), 'Pocket mouths are unexpectedly narrow');
   assert.equal(diagnostics.ballLinearDamping, 0.5, 'Original linear rolling resistance was changed');
   assert.equal(diagnostics.ballAngularDamping, 0.1, 'Original angular rolling resistance was changed');
+  assert.equal(diagnostics.fixedTimeStep, 1 / 60, 'Original physics step duration was changed');
+  assert.equal(diagnostics.worldSleepEnabled, false, 'Automatic world sleeping should remain disabled as in the original prototype');
   const expectedContacts = {
     'ball:ball': [0.1, 0.9],
     'ball:table': [0.4, 0.1],
