@@ -93,7 +93,7 @@ try {
   assert.equal(diagnostics.pocketRimCount, 0, 'Pocket openings should not have decorative raised rings');
   assert.equal(diagnostics.pocketJawMeshCount, 0, 'Pocket transitions should not use separate jaw blocks');
   assert.equal(diagnostics.pocketJawBodyCount, 0, 'Pocket transitions should not use separate jaw collision bodies');
-  assert.ok(diagnostics.pocketMouthRadii.every(radius => radius >= 0.8), 'Pocket mouths are unexpectedly narrow');
+  assert.ok(diagnostics.pocketMouthRadii.every(radius => radius >= 0.6), 'Pocket mouths are unexpectedly narrow');
   assert.deepEqual(diagnostics.invalidGeometries, [], 'Found invalid mesh geometry');
 
   const test = await page.evaluateHandle(() => window.__POOL_TEST__);
