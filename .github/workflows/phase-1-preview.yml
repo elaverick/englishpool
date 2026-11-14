@@ -7,6 +7,8 @@ on:
     paths:
       - "index.html"
       - "main.js"
+      - "package.json"
+      - "tests/**"
       - ".github/workflows/phase-1-preview.yml"
   workflow_dispatch:
 
@@ -20,7 +22,46 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  browser-tests:
+    name: Browser and WebGL smoke tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out preview branch
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install test dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Install Chromium with software WebGL
+        run: npx playwright install --with-deps chromium
+
+      - name: Check JavaScript syntax
+        run: node --check main.js && node --check tests/browser-smoke.mjs
+
+      - name: Start local web server
+        run: |
+          python3 -m http.server 4173 --bind 127.0.0.1 > /tmp/englishpool-http.log 2>&1 &
+          echo $! > /tmp/englishpool-http.pid
+
+      - name: Run browser and WebGL tests
+        run: npm run test:browser
+
+      - name: Upload browser screenshots and diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-test-results
+          path: test-results/
+          if-no-files-found: warn
+          retention-days: 14
+
   deploy:
+    needs: browser-tests
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
