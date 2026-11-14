@@ -172,8 +172,6 @@ function buildTable(mats) {
             0, cushionVisual, mats.cushionMat);
     }
 
-    addCornerCushionNoses(cushionVisual, mats.cushionMat);
-
     // Top rails, wooden cabinet rails and brass sights.
     addVisualRail(0, -HALF_LENGTH - 0.77, TABLE_WIDTH + 1.55, 0.46, wood);
     addVisualRail(0, HALF_LENGTH + 0.77, TABLE_WIDTH + 1.55, 0.46, wood);
@@ -264,7 +262,7 @@ function createPockets(black) {
     ];
     for (const pocket of pockets) {
         const mouth = new THREE.Mesh(new THREE.CylinderGeometry(0.78, 0.72, 0.18, 40), black);
-        mouth.position.set(pocket.x, -0.065, pocket.z);
+        mouth.position.set(pocket.x, -0.18, pocket.z);
         scene.add(mouth);
         const throat = new THREE.Mesh(new THREE.CylinderGeometry(0.58, 0.66, 0.42, 40), black);
         throat.position.set(pocket.x, -0.31, pocket.z);
@@ -285,54 +283,6 @@ function addRailSegment(x, z, width, length, angle, material, physicsMaterial) {
     world.addBody(body);
 }
 
-
-function addCornerCushionNoses(material, physicsMaterial) {
-    // Each triangular nose joins a side cushion end to an end cushion end.
-    // The tip faces the pocket, leaving the circular mouth unobstructed.
-    for (const sx of [-1, 1]) {
-        for (const sz of [-1, 1]) {
-            const points = [
-                [sx * 4.98, sz * 9.25],
-                [sx * 4.25, sz * 9.98],
-                [sx * 4.43, sz * 9.43]
-            ];
-            addCushionWedge(points, material, physicsMaterial);
-        }
-    }
-}
-
-function addCushionWedge(points, material, physicsMaterial) {
-    const shape = new THREE.Shape();
-    shape.moveTo(points[0][0], -points[0][1]);
-    shape.lineTo(points[1][0], -points[1][1]);
-    shape.lineTo(points[2][0], -points[2][1]);
-    shape.closePath();
-
-    const geometry = new THREE.ExtrudeGeometry(shape, {
-        depth: CUSHION_HEIGHT,
-        bevelEnabled: false,
-        curveSegments: 1
-    });
-    geometry.rotateX(-Math.PI / 2);
-    const mesh = new THREE.Mesh(geometry, material);
-    mesh.castShadow = mesh.receiveShadow = true;
-    scene.add(mesh);
-
-    // Matching triangular-prism collision volume.
-    const vertices = [];
-    for (const y of [0, CUSHION_HEIGHT]) {
-        for (const [x, z] of points) vertices.push(new CANNON.Vec3(x, y, z));
-    }
-    const body = new CANNON.Body({ mass: 0, material: physicsMaterial });
-    body.addShape(new CANNON.ConvexPolyhedron({
-        vertices,
-        faces: [
-            [0, 2, 1], [3, 4, 5],
-            [0, 1, 4, 3], [1, 2, 5, 4], [2, 0, 3, 5]
-        ]
-    }));
-    world.addBody(body);
-}
 
 function addVisualRail(x, z, width, length, material) {
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(width, 0.32, length), material);
