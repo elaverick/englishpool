@@ -115,7 +115,9 @@ try {
     const cornerResult = {
       potted: cornerBall.potted,
       pocket: cornerBall.pocket,
-      hidden: !cornerBall.mesh.visible
+      hidden: !cornerBall.mesh.visible,
+      position: [cornerBall.body.position.x, cornerBall.body.position.y, cornerBall.body.position.z],
+      velocity: [cornerBall.body.velocity.x, cornerBall.body.velocity.y, cornerBall.body.velocity.z]
     };
 
     const sideBall = test.setBallState('red', [side.x, 0.25, side.z]);
@@ -123,10 +125,13 @@ try {
     const sideResult = {
       potted: sideBall.potted,
       pocket: sideBall.pocket,
-      hidden: !sideBall.mesh.visible
+      hidden: !sideBall.mesh.visible,
+      position: [sideBall.body.position.x, sideBall.body.position.y, sideBall.body.position.z],
+      velocity: [sideBall.body.velocity.x, sideBall.body.velocity.y, sideBall.body.velocity.z]
     };
     return { nearMissResult, cornerResult, sideResult };
   });
+  console.log('Pocket physics diagnostics:', JSON.stringify(pocketPhysics));
   assert.equal(pocketPhysics.nearMissResult.potted, false, 'A ball outside the throat was incorrectly captured');
   assert.ok(pocketPhysics.nearMissResult.height > 0.1, 'A near-miss ball fell through the bed');
   assert.equal(pocketPhysics.cornerResult.potted, true, 'A ball in the corner throat was not potted');
