@@ -142,7 +142,7 @@ function buildTable(mats) {
     const wood = new THREE.MeshStandardMaterial({ color: 0x392316, roughness: 0.34 });
     const cushionVisual = new THREE.MeshStandardMaterial({ color: 0x24402d, roughness: 0.72 });
     const black = new THREE.MeshStandardMaterial({ color: 0x050606, roughness: 0.98 });
-    const brass = new THREE.MeshStandardMaterial({ color: 0xb18a4b, metalness: 0.65, roughness: 0.3 }); // rail sights only
+    const brass = new THREE.MeshStandardMaterial({ color: 0xb18a4b, metalness: 0.65, roughness: 0.3 });
 
     const cabinet = new THREE.Mesh(
         new THREE.BoxGeometry(TABLE_WIDTH + 2, 0.8, TABLE_LENGTH + 2), wood
@@ -151,13 +151,10 @@ function buildTable(mats) {
     cabinet.castShadow = cabinet.receiveShadow = true;
     scene.add(cabinet);
 
-    buildClothTiles(createBaizeMaterial());
-    buildBedCollisionTiles(mats.tableMat);
+    buildPlayingSurface(createBaizeMaterial(), mats.tableMat);
     createPockets(black);
 
-    // Split cushions leave unobstructed openings at the four corners and
-    // the two side pockets. Their visual and Cannon shapes share transforms.
-    const sideIntervals = [[-9.25, -0.72], [0.72, 9.25]];
+    const sideIntervals = [[-9.15, -0.85], [0.85, 9.15]];
     for (const sx of [-1, 1]) {
         for (const interval of sideIntervals) {
             addRailSegment(
@@ -168,11 +165,25 @@ function buildTable(mats) {
         }
     }
     for (const sz of [-1, 1]) {
-        addRailSegment(0, sz * (HALF_LENGTH + 0.34), 8.5, CUSHION_THICKNESS,
+        addRailSegment(0, sz * (HALF_LENGTH + 0.34), 8.0, CUSHION_THICKNESS,
             0, cushionVisual, mats.cushionMat);
     }
+    // Diagonal corner rails join the side and end cushions with matching
+    // visual and collision transforms.
+    for (const sx of [-1, 1]) {
+        for (const sz of [-1, 1]) {
+            const sideEnd = { x: sx * (HALF_WIDTH + 0.34), z: sz * 9.15 };
+            const endEnd = { x: sx * 4.0, z: sz * (HALF_LENGTH + 0.34) };
+            const dx = endEnd.x - sideEnd.x;
+            const dz = endEnd.z - sideEnd.z;
+            addRailSegment(
+                (sideEnd.x + endEnd.x) / 2, (sideEnd.z + endEnd.z) / 2,
+                CUSHION_THICKNESS, Math.hypot(dx, dz), Math.atan2(dx, dz),
+                cushionVisual, mats.cushionMat
+            );
+        }
+    }
 
-    // Top rails, wooden cabinet rails and brass sights.
     addVisualRail(0, -HALF_LENGTH - 0.77, TABLE_WIDTH + 1.55, 0.46, wood);
     addVisualRail(0, HALF_LENGTH + 0.77, TABLE_WIDTH + 1.55, 0.46, wood);
     addVisualRail(-HALF_WIDTH - 0.77, 0, 0.46, TABLE_LENGTH + 1.55, wood);
@@ -187,7 +198,6 @@ function buildTable(mats) {
         addSight(HALF_WIDTH + 0.77, z, brass);
     }
 
-    // Baulk line, D and table spots.
     const marking = new THREE.MeshBasicMaterial({ color: 0xe7e1c8 });
     const baulkZ = HALF_LENGTH * 0.5;
     const line = new THREE.Mesh(new THREE.PlaneGeometry(TABLE_WIDTH, 0.025), marking);
@@ -204,69 +214,53 @@ function buildTable(mats) {
     addTableSpot(0, HALF_LENGTH * 0.25, marking);
 }
 
-function buildClothTiles(material) {
-    // Render the cloth in the same tiles as the collision bed so the six
-    // pocket apertures are visible instead of being covered by a flat plane.
-    const xSegments = [[-5, -4.25], [-4.25, 4.25], [4.25, 5]];
-    const zSegments = [
-        [-10, -9.25], [-9.25, -0.72], [-0.72, 0.72],
-        [0.72, 9.25], [9.25, 10]
-    ];
-    for (let xi = 0; xi < xSegments.length; xi++) {
-        for (let zi = 0; zi < zSegments.length; zi++) {
-            if (xi !== 1 && (zi === 0 || zi === 2 || zi === 4)) continue;
-            const [x0, x1] = xSegments[xi];
-            const [z0, z1] = zSegments[zi];
-            const mesh = new THREE.Mesh(
-                new THREE.PlaneGeometry(x1 - x0, z1 - z0), material
-            );
-            mesh.rotation.x = -Math.PI / 2;
-            mesh.position.set((x0 + x1) / 2, 0.012, (z0 + z1) / 2);
-            mesh.receiveShadow = true;
-            scene.add(mesh);
-        }
-    }
-}
+function buildPlayingSurface(material, tableMat) {
+    // A single continuous outline forms six open notches in the table edge.
+    // Shape coordinates use (x, -z), then rotate onto the XZ playing plane.
+    const shape = new THREE.Shape();
+    shape.moveTo(-4.0, 10.0);
+    shape.quadraticCurveTo(-5.0, 10.0, -5.0, 9.0);
+    shape.lineTo(-5.0, 0.82);
+    shape.quadraticCurveTo(-4.15, 0.0, -5.0, -0.82);
+    shape.lineTo(-5.0, -9.0);
+    shape.quadraticCurveTo(-5.0, -10.0, -4.0, -10.0);
+    shape.lineTo(4.0, -10.0);
+    shape.quadraticCurveTo(5.0, -10.0, 5.0, -9.0);
+    shape.lineTo(5.0, -0.82);
+    shape.quadraticCurveTo(4.15, 0.0, 5.0, 0.82);
+    shape.lineTo(5.0, 9.0);
+    shape.quadraticCurveTo(5.0, 10.0, 4.0, 10.0);
+    shape.closePath();
 
-function buildBedCollisionTiles(tableMat) {
-    // Tile the playing surface around six rectangular apertures. The cloth
-    // remains a single plane, but Cannon has no collision surface in a pocket.
-    const xSegments = [[-5, -4.25], [-4.25, 4.25], [4.25, 5]];
-    const zSegments = [
-        [-10, -9.25], [-9.25, -0.72], [-0.72, 0.72],
-        [0.72, 9.25], [9.25, 10]
-    ];
-    for (let xi = 0; xi < xSegments.length; xi++) {
-        for (let zi = 0; zi < zSegments.length; zi++) {
-            if (xi !== 1 && (zi === 0 || zi === 2 || zi === 4)) continue;
-            const [x0, x1] = xSegments[xi];
-            const [z0, z1] = zSegments[zi];
-            const width = x1 - x0;
-            const length = z1 - z0;
-            const body = new CANNON.Body({ mass: 0, material: tableMat });
-            body.addShape(new CANNON.Box(new CANNON.Vec3(width / 2, 0.25, length / 2)));
-            body.position.set((x0 + x1) / 2, -0.25, (z0 + z1) / 2);
-            world.addBody(body);
-        }
-    }
+    const geometry = new THREE.ShapeGeometry(shape, 24);
+    geometry.rotateX(-Math.PI / 2);
+    const cloth = new THREE.Mesh(geometry, material);
+    cloth.position.y = 0.012;
+    cloth.receiveShadow = true;
+    scene.add(cloth);
+
+    const positions = geometry.attributes.position.array;
+    const indices = geometry.index.array;
+    const body = new CANNON.Body({ mass: 0, material: tableMat });
+    body.addShape(new CANNON.Trimesh(Array.from(positions), Array.from(indices)));
+    body.position.set(0, 0.012, 0);
+    world.addBody(body);
 }
 
 function createPockets(black) {
     pockets = [
-        { id: 'top-left', x: -4.78, z: -9.78 },
-        { id: 'top-right', x: 4.78, z: -9.78 },
-        { id: 'middle-left', x: -4.78, z: 0 },
-        { id: 'middle-right', x: 4.78, z: 0 },
-        { id: 'bottom-left', x: -4.78, z: 9.78 },
-        { id: 'bottom-right', x: 4.78, z: 9.78 }
+        { id: 'top-left', x: -4.6, z: -9.6 },
+        { id: 'top-right', x: 4.6, z: -9.6 },
+        { id: 'middle-left', x: -4.15, z: 0 },
+        { id: 'middle-right', x: 4.15, z: 0 },
+        { id: 'bottom-left', x: -4.6, z: 9.6 },
+        { id: 'bottom-right', x: 4.6, z: 9.6 }
     ];
     for (const pocket of pockets) {
-        const mouth = new THREE.Mesh(new THREE.CylinderGeometry(0.78, 0.72, 0.18, 40), black);
-        mouth.position.set(pocket.x, -0.065, pocket.z);
-        scene.add(mouth);
-        const throat = new THREE.Mesh(new THREE.CylinderGeometry(0.58, 0.66, 0.42, 40), black);
-        throat.position.set(pocket.x, -0.31, pocket.z);
-        scene.add(throat);
+        const floor = new THREE.Mesh(new THREE.CircleGeometry(0.72, 40), black);
+        floor.rotation.x = -Math.PI / 2;
+        floor.position.set(pocket.x, -0.58, pocket.z);
+        scene.add(floor);
     }
 }
 
