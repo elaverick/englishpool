@@ -318,6 +318,7 @@ function buildPocketJaws(material, physicsMaterial) {
         scene.add(mesh);
 
         const body = new CANNON.Body({ mass: 0, material: physicsMaterial });
+        body.name = mesh.name;
         body.addShape(new CANNON.Box(new CANNON.Vec3(jawWidth / 2, jawHeight / 2, jawLength / 2)));
         body.position.set(x, jawHeight / 2, z);
         body.quaternion.setFromEuler(0, angle, 0);
