@@ -213,7 +213,6 @@ function buildTable(mats) {
                 0, cushionVisual, mats.cushionMat);
         }
     }
-    buildPocketJaws(cushionVisual, mats.cushionMat);
 
     addVisualRail(0, -HALF_LENGTH - 0.77, TABLE_WIDTH + 1.55, 0.46, wood);
     addVisualRail(0, HALF_LENGTH + 0.77, TABLE_WIDTH + 1.55, 0.46, wood);
@@ -292,9 +291,6 @@ function createPockets(black) {
         color: 0x080909, roughness: 0.96, metalness: 0.02,
         side: THREE.DoubleSide
     });
-    const rimMaterial = new THREE.MeshStandardMaterial({
-        color: 0x171a17, roughness: 0.88, metalness: 0.02
-    });
 
     for (const pocket of pockets) {
         const floor = new THREE.Mesh(new THREE.CircleGeometry(0.62, 48), black);
@@ -313,118 +309,49 @@ function createPockets(black) {
         liner.receiveShadow = true;
         scene.add(liner);
 
-        const rim = new THREE.Mesh(new THREE.TorusGeometry(0.68, 0.045, 8, 48), rimMaterial);
-        rim.name = `pocket-rim-${pocket.id}`;
-        rim.rotation.x = Math.PI / 2;
-        rim.position.set(pocket.x, 0.018, pocket.z);
-        rim.castShadow = true;
-        scene.add(rim);
-    }
-}
-
-function buildPocketJaws(material, physicsMaterial) {
-    // Each jaw is a tapered, plan-view wedge rather than a blunt rectangular
-    // block. The same extruded geometry supplies both the render mesh and the
-    // static collision mesh, keeping the cushion nose and physics aligned.
-    const height = CUSHION_HEIGHT;
-    const bevel = 0.06;
-
-    function addWedge(name, points) {
-        const shape = new THREE.Shape();
-        const rounded = points.map((point, index) => {
-            const previous = points[(index + points.length - 1) % points.length];
-            const next = points[(index + 1) % points.length];
-            const previousLength = Math.hypot(previous[0] - point[0], previous[1] - point[1]);
-            const nextLength = Math.hypot(next[0] - point[0], next[1] - point[1]);
-            const radius = Math.min(0.2, previousLength * 0.45, nextLength * 0.45);
-            const before = [
-                point[0] + (previous[0] - point[0]) / previousLength * radius,
-                point[1] + (previous[1] - point[1]) / previousLength * radius
-            ];
-            const after = [
-                point[0] + (next[0] - point[0]) / nextLength * radius,
-                point[1] + (next[1] - point[1]) / nextLength * radius
-            ];
-            return { before, after };
-        });
-        shape.moveTo(rounded[0].before[0], -rounded[0].before[1]);
-        for (let i = 0; i < points.length; i++) {
-            shape.quadraticCurveTo(
-                points[i][0], -points[i][1],
-                rounded[i].after[0], -rounded[i].after[1]
-            );
-            const next = rounded[(i + 1) % points.length].before;
-            shape.lineTo(next[0], -next[1]);
-        }
-        shape.closePath();
-
-        const geometry = new THREE.ExtrudeGeometry(shape, {
-            depth: height,
-            steps: 1,
-            bevelEnabled: true,
-            bevelSegments: 4,
-            bevelSize: bevel,
-            bevelThickness: bevel,
-            curveSegments: 8
-        });
-        geometry.rotateX(-Math.PI / 2);
-        geometry.computeVertexNormals();
-
-        const mesh = new THREE.Mesh(geometry, material);
-        mesh.name = `pocket-jaw-${name}`;
-        mesh.castShadow = mesh.receiveShadow = true;
-        scene.add(mesh);
-
-        const positions = geometry.attributes.position;
-        const vertices = Array.from(positions.array);
-        const indices = geometry.index
-            ? Array.from(geometry.index.array)
-            : Array.from({ length: positions.count }, (_, i) => i);
-        const body = new CANNON.Body({ mass: 0, material: physicsMaterial });
-        body.name = mesh.name;
-        body.addShape(new CANNON.Trimesh(vertices, indices));
-        world.addBody(body);
-    }
-
-    // Corner jaws continue the side and end cushions into a diagonal nose.
-    for (const sx of [-1, 1]) {
-        for (const sz of [-1, 1]) {
-            addWedge(`corner-${sx}-${sz}-side`, [
-                [sx * 4.98, sz * 8.88],
-                [sx * 5.12, sz * 8.88],
-                [sx * 3.82, sz * 8.92],
-                [sx * 3.96, sz * 9.08]
-            ]);
-            addWedge(`corner-${sx}-${sz}-end`, [
-                [sx * 3.88, sz * 9.98],
-                [sx * 4.02, sz * 9.98],
-                [sx * 3.82, sz * 8.92],
-                [sx * 3.96, sz * 9.08]
-            ]);
-        }
-    }
-
-    // Side-pocket jaws taper from the cushion ends towards the pocket throat.
-    for (const sx of [-1, 1]) {
-        for (const sz of [-1, 1]) {
-            addWedge(`side-${sx}-${sz}`, [
-                [sx * 4.98, sz * 0.82],
-                [sx * 5.12, sz * 0.82],
-                [sx * 4.78, sz * 0.64],
-                [sx * 4.66, sz * 0.78]
-            ]);
-        }
     }
 }
 
 function addRailSegment(x, z, width, length, angle, material, physicsMaterial) {
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(width, CUSHION_HEIGHT, length), material);
+    // A single softly rounded cushion segment. Rounded plan-view ends avoid
+    // attaching separate jaw blocks around each pocket.
+    const radius = Math.min(0.2, width * 0.22, length * 0.12);
+    const halfW = width / 2;
+    const halfL = length / 2;
+    const shape = new THREE.Shape();
+    shape.moveTo(-halfW + radius, -halfL);
+    shape.lineTo(halfW - radius, -halfL);
+    shape.quadraticCurveTo(halfW, -halfL, halfW, -halfL + radius);
+    shape.lineTo(halfW, halfL - radius);
+    shape.quadraticCurveTo(halfW, halfL, halfW - radius, halfL);
+    shape.lineTo(-halfW + radius, halfL);
+    shape.quadraticCurveTo(-halfW, halfL, -halfW, halfL - radius);
+    shape.lineTo(-halfW, -halfL + radius);
+    shape.quadraticCurveTo(-halfW, -halfL, -halfW + radius, -halfL);
+    shape.closePath();
+
+    const geometry = new THREE.ExtrudeGeometry(shape, {
+        depth: CUSHION_HEIGHT,
+        bevelEnabled: false,
+        curveSegments: 8
+    });
+    geometry.translate(0, 0, -CUSHION_HEIGHT / 2);
+    geometry.rotateX(-Math.PI / 2);
+    geometry.computeVertexNormals();
+
+    const mesh = new THREE.Mesh(geometry, material);
     mesh.position.set(x, CUSHION_HEIGHT / 2, z);
     mesh.rotation.y = angle;
     mesh.castShadow = mesh.receiveShadow = true;
     scene.add(mesh);
+
+    const positions = geometry.attributes.position;
+    const vertices = Array.from(positions.array);
+    const indices = geometry.index
+        ? Array.from(geometry.index.array)
+        : Array.from({ length: positions.count }, (_, i) => i);
     const body = new CANNON.Body({ mass: 0, material: physicsMaterial });
-    body.addShape(new CANNON.Box(new CANNON.Vec3(width / 2, CUSHION_HEIGHT / 2, length / 2)));
+    body.addShape(new CANNON.Trimesh(vertices, indices));
     body.position.set(x, CUSHION_HEIGHT / 2, z);
     body.quaternion.setFromEuler(0, angle, 0);
     world.addBody(body);
