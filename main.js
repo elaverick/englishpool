@@ -189,8 +189,10 @@ function buildTable(mats) {
         }
     }
     for (const sz of [-1, 1]) {
-        addRailSegment(0, sz * (HALF_LENGTH + 0.34), 8.0, CUSHION_THICKNESS,
-            0, cushionVisual, mats.cushionMat);
+        for (const sx of [-1, 1]) {
+            addRailSegment(sx * 1.9, sz * (HALF_LENGTH + 0.34), 3.8, CUSHION_THICKNESS,
+                0, cushionVisual, mats.cushionMat);
+        }
     }
     buildPocketJaws(cushionVisual, mats.cushionMat);
 
@@ -272,7 +274,7 @@ function createPockets(black) {
         side: THREE.DoubleSide
     });
     const rimMaterial = new THREE.MeshStandardMaterial({
-        color: 0x8b6938, roughness: 0.42, metalness: 0.62
+        color: 0x171a17, roughness: 0.88, metalness: 0.02
     });
 
     for (const pocket of pockets) {
@@ -292,7 +294,7 @@ function createPockets(black) {
         liner.receiveShadow = true;
         scene.add(liner);
 
-        const rim = new THREE.Mesh(new THREE.TorusGeometry(0.70, 0.035, 8, 48), rimMaterial);
+        const rim = new THREE.Mesh(new THREE.TorusGeometry(0.68, 0.045, 8, 48), rimMaterial);
         rim.name = `pocket-rim-${pocket.id}`;
         rim.rotation.x = Math.PI / 2;
         rim.position.set(pocket.x, 0.018, pocket.z);
@@ -302,38 +304,75 @@ function createPockets(black) {
 }
 
 function buildPocketJaws(material, physicsMaterial) {
-    const jawLength = 0.72;
-    const jawWidth = 0.34;
-    const jawHeight = CUSHION_HEIGHT;
+    // Each jaw is a tapered, plan-view wedge rather than a blunt rectangular
+    // block. The same extruded geometry supplies both the render mesh and the
+    // static collision mesh, keeping the cushion nose and physics aligned.
+    const height = CUSHION_HEIGHT;
+    const bevel = 0.035;
 
-    function addJaw(name, x, z, angle) {
-        const mesh = new THREE.Mesh(
-            new THREE.BoxGeometry(jawWidth, jawHeight, jawLength),
-            material
-        );
+    function addWedge(name, points) {
+        const shape = new THREE.Shape();
+        shape.moveTo(points[0][0], -points[0][1]);
+        for (let i = 1; i < points.length; i++) {
+            shape.lineTo(points[i][0], -points[i][1]);
+        }
+        shape.closePath();
+
+        const geometry = new THREE.ExtrudeGeometry(shape, {
+            depth: height,
+            steps: 1,
+            bevelEnabled: true,
+            bevelSegments: 2,
+            bevelSize: bevel,
+            bevelThickness: bevel,
+            curveSegments: 2
+        });
+        geometry.rotateX(-Math.PI / 2);
+        geometry.computeVertexNormals();
+
+        const mesh = new THREE.Mesh(geometry, material);
         mesh.name = `pocket-jaw-${name}`;
-        mesh.position.set(x, jawHeight / 2, z);
-        mesh.rotation.y = angle;
         mesh.castShadow = mesh.receiveShadow = true;
         scene.add(mesh);
 
+        const positions = geometry.attributes.position;
+        const vertices = Array.from(positions.array);
+        const indices = geometry.index
+            ? Array.from(geometry.index.array)
+            : Array.from({ length: positions.count }, (_, i) => i);
         const body = new CANNON.Body({ mass: 0, material: physicsMaterial });
         body.name = mesh.name;
-        body.addShape(new CANNON.Box(new CANNON.Vec3(jawWidth / 2, jawHeight / 2, jawLength / 2)));
-        body.position.set(x, jawHeight / 2, z);
-        body.quaternion.setFromEuler(0, angle, 0);
+        body.addShape(new CANNON.Trimesh(vertices, indices));
         world.addBody(body);
     }
 
+    // Corner jaws continue the side and end cushions into a diagonal nose.
     for (const sx of [-1, 1]) {
         for (const sz of [-1, 1]) {
-            addJaw(`corner-${sx}-${sz}-side`, sx * 4.86, sz * 9.12, sx * sz * 0.52);
-            addJaw(`corner-${sx}-${sz}-end`, sx * 3.98, sz * 9.98, -sx * sz * 0.52);
+            addWedge(`corner-${sx}-${sz}-side`, [
+                [sx * 4.98, sz * 8.72],
+                [sx * 5.48, sz * 8.72],
+                [sx * 5.48, sz * 9.55],
+                [sx * 4.43, sz * 9.22]
+            ]);
+            addWedge(`corner-${sx}-${sz}-end`, [
+                [sx * 3.72, sz * 9.98],
+                [sx * 4.55, sz * 9.98],
+                [sx * 4.92, sz * 10.48],
+                [sx * 4.28, sz * 9.22]
+            ]);
         }
     }
+
+    // Side-pocket jaws taper from the cushion ends towards the pocket throat.
     for (const sx of [-1, 1]) {
         for (const sz of [-1, 1]) {
-            addJaw(`side-${sx}-${sz}`, sx * 4.82, sz * 0.82, sx * sz * 0.42);
+            addWedge(`side-${sx}-${sz}`, [
+                [sx * 4.98, sz * 0.82],
+                [sx * 5.48, sz * 0.82],
+                [sx * 5.48, sz * 1.34],
+                [sx * 4.28, sz * 0.43]
+            ]);
         }
     }
 }
