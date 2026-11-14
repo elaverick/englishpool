@@ -228,10 +228,7 @@ function buildTable(mats) {
         }
     }
 
-    addVisualRail(0, -HALF_LENGTH - 0.77, TABLE_WIDTH + 1.55, 0.46, wood);
-    addVisualRail(0, HALF_LENGTH + 0.77, TABLE_WIDTH + 1.55, 0.46, wood);
-    addVisualRail(-HALF_WIDTH - 0.77, 0, 0.46, TABLE_LENGTH + 1.55, wood);
-    addVisualRail(HALF_WIDTH + 0.77, 0, 0.46, TABLE_LENGTH + 1.55, wood);
+    buildWoodenFrame(wood);
 
     for (const x of [-3.2, -1.6, 0, 1.6, 3.2]) {
         addSight(x, -HALF_LENGTH - 0.77, brass);
@@ -379,11 +376,72 @@ function addRailSegment(
     world.addBody(body);
 }
 
-function addVisualRail(x, z, width, length, material) {
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(width, 0.32, length), material);
-    mesh.position.set(x, 0.58, z);
-    mesh.castShadow = mesh.receiveShadow = true;
-    scene.add(mesh);
+function buildWoodenFrame(material) {
+    // The upper timber is one continuous rectangular perimeter, not four
+    // independently-ended bars. Its underside reaches the playing-surface
+    // height so the cushion support cannot appear to float.
+    const surfaceY = 0.012;
+    const topY = 0.74;
+    const frameOuterHalfWidth = HALF_WIDTH + 1;
+    const frameOuterHalfLength = HALF_LENGTH + 1;
+    const frameInnerHalfWidth = frameOuterHalfWidth - 0.46;
+    const frameInnerHalfLength = frameOuterHalfLength - 0.46;
+    const extrusionDepth = topY - surfaceY;
+
+    const perimeter = new THREE.Shape();
+    perimeter.moveTo(-frameOuterHalfWidth, frameOuterHalfLength);
+    perimeter.lineTo(frameOuterHalfWidth, frameOuterHalfLength);
+    perimeter.lineTo(frameOuterHalfWidth, -frameOuterHalfLength);
+    perimeter.lineTo(-frameOuterHalfWidth, -frameOuterHalfLength);
+    perimeter.closePath();
+
+    const opening = new THREE.Path();
+    opening.moveTo(-frameInnerHalfWidth, frameInnerHalfLength);
+    opening.lineTo(-frameInnerHalfWidth, -frameInnerHalfLength);
+    opening.lineTo(frameInnerHalfWidth, -frameInnerHalfLength);
+    opening.lineTo(frameInnerHalfWidth, frameInnerHalfLength);
+    opening.closePath();
+    perimeter.holes.push(opening);
+
+    function addTimberPiece(shape, name) {
+        const geometry = new THREE.ExtrudeGeometry(shape, {
+            depth: extrusionDepth,
+            bevelEnabled: false,
+            curveSegments: 24
+        });
+        geometry.rotateX(-Math.PI / 2);
+        geometry.computeVertexNormals();
+        geometry.computeBoundingBox();
+
+        const mesh = new THREE.Mesh(geometry, material);
+        mesh.name = name;
+        mesh.position.y = surfaceY;
+        mesh.castShadow = mesh.receiveShadow = true;
+        scene.add(mesh);
+        return mesh;
+    }
+
+    addTimberPiece(perimeter, 'wooden-frame-perimeter');
+
+    // The baize outline deliberately cuts back at each corner pocket. Fill
+    // the timber behind that curved opening from the inner frame corner to
+    // the exact cloth boundary, leaving the pocket throat itself open.
+    for (const mirrorX of [1, -1]) {
+        for (const mirrorY of [1, -1]) {
+            const x = value => value * mirrorX;
+            const y = value => value * mirrorY;
+            const support = new THREE.Shape();
+            support.moveTo(x(-5.64), y(10.64));
+            support.lineTo(x(-4.05), y(10.0));
+            support.quadraticCurveTo(
+                x(-3.65), y(9.05),
+                x(-5.0), y(9.05)
+            );
+            support.lineTo(x(-5.64), y(9.05));
+            support.closePath();
+            addTimberPiece(support, `wooden-corner-support-${mirrorX}-${mirrorY}`);
+        }
+    }
 }
 
 function addSight(x, z, material) {
