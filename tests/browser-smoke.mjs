@@ -82,6 +82,26 @@ try {
       fixedTimeStep: test.fixedTimeStep,
       cushionBedOverlap: test.cushionBedOverlap,
       cushionRailCount: test.scene.children.filter(object => object.name?.startsWith('cushion-rail-')).length,
+      woodenFrameCount: test.scene.children.filter(object => object.name === 'wooden-frame-perimeter').length,
+      woodenCornerSupportCount: test.scene.children.filter(object => object.name?.startsWith('wooden-corner-support-')).length,
+      oldSegmentedWoodRailCount: test.scene.children.filter(object => object.name?.startsWith('visual-rail-')).length,
+      woodenFrameBounds: (() => {
+        const frame = test.scene.children.find(object => object.name === 'wooden-frame-perimeter');
+        if (!frame) return null;
+        const bounds = frame.geometry.boundingBox;
+        return {
+          min: [bounds.min.x, bounds.min.y, bounds.min.z],
+          max: [bounds.max.x, bounds.max.y, bounds.max.z],
+          positionY: frame.position.y
+        };
+      })(),
+      cornerSupportHeights: test.scene.children
+        .filter(object => object.name?.startsWith('wooden-corner-support-'))
+        .map(object => ({
+          minY: object.geometry.boundingBox.min.y,
+          maxY: object.geometry.boundingBox.max.y,
+          positionY: object.position.y
+        })),
       worldSleepEnabled: test.world.allowSleep,
       contactMaterials: test.world.contactmaterials.map(contact => ({
         pair: contact.materials.map(material => material.name).sort().join(':'),
@@ -110,6 +130,17 @@ try {
   assert.equal(diagnostics.fixedTimeStep, 1 / 60, 'Original physics step duration was changed');
   assert.equal(diagnostics.cushionBedOverlap, 0.18, 'Cushions must overlap the cloth edge to close the rail gap');
   assert.equal(diagnostics.cushionRailCount, 8, 'Expected eight continuous cushion segments');
+  assert.equal(diagnostics.woodenFrameCount, 1, 'The top wooden border must be one continuous perimeter');
+  assert.equal(diagnostics.woodenCornerSupportCount, 4, 'All four pocket corners need solid timber support down to the playing surface');
+  assert.equal(diagnostics.oldSegmentedWoodRailCount, 0, 'Separate wooden frame bars can leave open corner joints');
+  assert.ok(diagnostics.woodenFrameBounds, 'Missing continuous wooden perimeter geometry');
+  assert.equal(diagnostics.woodenFrameBounds.positionY, 0.012, 'Wooden perimeter must start at the playing-surface height');
+  assert.ok(
+    diagnostics.cornerSupportHeights.every(bounds =>
+      Math.abs(bounds.minY) < 1e-6 && bounds.maxY > 0.7 && Math.abs(bounds.positionY - 0.012) < 1e-6
+    ),
+    'Corner timber must extend continuously from the baize to the top frame'
+  );
   assert.equal(diagnostics.worldSleepEnabled, false, 'Automatic world sleeping should remain disabled as in the original prototype');
   const expectedContacts = {
     'ball:ball': [0.1, 0.9],
@@ -134,6 +165,13 @@ try {
     window.__POOL_TEST__.setCamera([-15, 11, 14], [-4.2, 0, -8.8]);
   });
   await page.screenshot({ path: `${outputDir}/corner-pocket.png`, fullPage: true });
+
+  // Look back into a corner from outside the cabinet to verify that the
+  // timber support fills the pocket-side void beneath the top perimeter.
+  await page.evaluate(() => {
+    window.__POOL_TEST__.setCamera([-7.2, 2.2, -12.8], [-4.9, 0.35, -9.8]);
+  });
+  await page.screenshot({ path: `${outputDir}/corner-frame-support.png`, fullPage: true });
 
   await page.evaluate(() => {
     window.__POOL_TEST__.setCamera([-15, 10, 0], [-4.4, 0, 0]);
