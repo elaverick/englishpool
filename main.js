@@ -331,9 +331,30 @@ function buildPocketJaws(material, physicsMaterial) {
 
     function addWedge(name, points) {
         const shape = new THREE.Shape();
-        shape.moveTo(points[0][0], -points[0][1]);
-        for (let i = 1; i < points.length; i++) {
-            shape.lineTo(points[i][0], -points[i][1]);
+        const rounded = points.map((point, index) => {
+            const previous = points[(index + points.length - 1) % points.length];
+            const next = points[(index + 1) % points.length];
+            const previousLength = Math.hypot(previous[0] - point[0], previous[1] - point[1]);
+            const nextLength = Math.hypot(next[0] - point[0], next[1] - point[1]);
+            const radius = Math.min(0.11, previousLength * 0.24, nextLength * 0.24);
+            const before = [
+                point[0] + (previous[0] - point[0]) / previousLength * radius,
+                point[1] + (previous[1] - point[1]) / previousLength * radius
+            ];
+            const after = [
+                point[0] + (next[0] - point[0]) / nextLength * radius,
+                point[1] + (next[1] - point[1]) / nextLength * radius
+            ];
+            return { before, after };
+        });
+        shape.moveTo(rounded[0].before[0], -rounded[0].before[1]);
+        for (let i = 0; i < points.length; i++) {
+            shape.quadraticCurveTo(
+                points[i][0], -points[i][1],
+                rounded[i].after[0], -rounded[i].after[1]
+            );
+            const next = rounded[(i + 1) % points.length].before;
+            shape.lineTo(next[0], -next[1]);
         }
         shape.closePath();
 
