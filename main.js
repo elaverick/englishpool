@@ -248,18 +248,18 @@ function buildPlayingSurface(material, tableMat) {
     // A single continuous outline forms six open notches in the table edge.
     // Shape coordinates use (x, -z), then rotate onto the XZ playing plane.
     const shape = new THREE.Shape();
-    shape.moveTo(-3.75, 10.0);
-    shape.quadraticCurveTo(-4.225, 9.725, -5.0, 8.75);
-    shape.lineTo(-5.0, 0.82);
-    shape.quadraticCurveTo(-3.2, 0.0, -5.0, -0.85);
-    shape.lineTo(-5.0, -8.75);
-    shape.quadraticCurveTo(-4.225, -9.725, -3.75, -10.0);
-    shape.lineTo(3.75, -10.0);
-    shape.quadraticCurveTo(4.225, -9.725, 5.0, -8.75);
-    shape.lineTo(5.0, -0.82);
-    shape.quadraticCurveTo(3.2, 0.0, 5.0, 0.85);
-    shape.lineTo(5.0, 8.75);
-    shape.quadraticCurveTo(4.225, 9.725, 3.75, 10.0);
+    shape.moveTo(-4.05, 10.0);
+    shape.quadraticCurveTo(-3.65, 9.05, -5.0, 9.05);
+    shape.lineTo(-5.0, 0.62);
+    shape.quadraticCurveTo(-3.7, 0.0, -5.0, -0.62);
+    shape.lineTo(-5.0, -9.05);
+    shape.quadraticCurveTo(-3.65, -9.05, -4.05, -10.0);
+    shape.lineTo(4.05, -10.0);
+    shape.quadraticCurveTo(3.65, -9.05, 5.0, -9.05);
+    shape.lineTo(5.0, -0.62);
+    shape.quadraticCurveTo(3.7, 0.0, 5.0, 0.62);
+    shape.lineTo(5.0, 9.05);
+    shape.quadraticCurveTo(3.65, 9.05, 4.05, 10.0);
     shape.closePath();
 
     const geometry = new THREE.ShapeGeometry(shape, 24);
@@ -279,12 +279,12 @@ function buildPlayingSurface(material, tableMat) {
 
 function createPockets(black) {
     pockets = [
-        { id: 'top-left', type: 'corner', x: -4.55, z: -9.55, mouthRadius: 0.88, captureRadius: 0.61 },
-        { id: 'top-right', type: 'corner', x: 4.55, z: -9.55, mouthRadius: 0.88, captureRadius: 0.61 },
-        { id: 'middle-left', type: 'side', x: -4.15, z: 0, mouthRadius: 0.85, captureRadius: 0.59 },
-        { id: 'middle-right', type: 'side', x: 4.15, z: 0, mouthRadius: 0.85, captureRadius: 0.59 },
-        { id: 'bottom-left', type: 'corner', x: -4.55, z: 9.55, mouthRadius: 0.88, captureRadius: 0.61 },
-        { id: 'bottom-right', type: 'corner', x: 4.55, z: 9.55, mouthRadius: 0.88, captureRadius: 0.61 }
+        { id: 'top-left', type: 'corner', x: -4.55, z: -9.55, mouthRadius: 0.68, captureRadius: 0.50 },
+        { id: 'top-right', type: 'corner', x: 4.55, z: -9.55, mouthRadius: 0.68, captureRadius: 0.50 },
+        { id: 'middle-left', type: 'side', x: -5.0, z: 0, mouthRadius: 0.65, captureRadius: 0.48 },
+        { id: 'middle-right', type: 'side', x: 5.0, z: 0, mouthRadius: 0.65, captureRadius: 0.48 },
+        { id: 'bottom-left', type: 'corner', x: -4.55, z: 9.55, mouthRadius: 0.68, captureRadius: 0.50 },
+        { id: 'bottom-right', type: 'corner', x: 4.55, z: 9.55, mouthRadius: 0.68, captureRadius: 0.50 }
     ];
 
     const pocketWellMaterial = new THREE.MeshBasicMaterial({ color: 0x030504 });
@@ -293,7 +293,7 @@ function createPockets(black) {
         // The cabinet top sits immediately below the cloth. A dark, recessed
         // well disc masks that surface through the cloth cut-out without a
         // conspicuous cylindrical wall or decorative ring.
-        const floor = new THREE.Mesh(new THREE.CircleGeometry(0.82, 48), pocketWellMaterial);
+        const floor = new THREE.Mesh(new THREE.CircleGeometry(pocket.mouthRadius, 48), pocketWellMaterial);
         floor.name = `pocket-floor-${pocket.id}`;
         floor.rotation.x = -Math.PI / 2;
         floor.position.set(pocket.x, -0.055, pocket.z);
