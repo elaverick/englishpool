@@ -171,7 +171,6 @@ function buildTable(mats) {
         addRailSegment(0, sz * (HALF_LENGTH + 0.34), 8.5, CUSHION_THICKNESS,
             0, cushionVisual, mats.cushionMat);
     }
-    addPocketJaws(cushionVisual, mats.cushionMat);
 
     // Top rails, wooden cabinet rails and brass sights.
     addVisualRail(0, -HALF_LENGTH - 0.77, TABLE_WIDTH + 1.55, 0.46, wood);
@@ -286,39 +285,6 @@ function addRailSegment(x, z, width, length, angle, material, physicsMaterial) {
     body.position.set(x, CUSHION_HEIGHT / 2, z);
     body.quaternion.setFromEuler(0, angle, 0);
     world.addBody(body);
-}
-
-function addPocketJaws(material, physicsMaterial) {
-    const jaws = [];
-    // Corner jaws: diagonal noses on both sides of each corner mouth.
-    for (const sx of [-1, 1]) {
-        for (const sz of [-1, 1]) {
-            jaws.push(
-                { x: sx * 4.43, z: sz * 9.02, angle: sx * sz * Math.PI / 4 },
-                { x: sx * 4.03, z: sz * 9.43, angle: -sx * sz * Math.PI / 4 }
-            );
-        }
-    }
-    // Side-pocket jaws, either side of the opening.
-    for (const sx of [-1, 1]) {
-        jaws.push(
-            { x: sx * 4.42, z: -0.72, angle: sx * Math.PI / 4 },
-            { x: sx * 4.42, z: 0.72, angle: -sx * Math.PI / 4 }
-        );
-    }
-    for (const jaw of jaws) {
-        const width = 0.88, height = 0.48, depth = 0.24;
-        const mesh = new THREE.Mesh(new THREE.BoxGeometry(width, height, depth), material);
-        mesh.position.set(jaw.x, height / 2, jaw.z);
-        mesh.rotation.y = jaw.angle;
-        mesh.castShadow = true;
-        scene.add(mesh);
-        const body = new CANNON.Body({ mass: 0, material: physicsMaterial });
-        body.addShape(new CANNON.Box(new CANNON.Vec3(width / 2, height / 2, depth / 2)));
-        body.position.set(jaw.x, height / 2, jaw.z);
-        body.quaternion.setFromEuler(0, jaw.angle, 0);
-        world.addBody(body);
-    }
 }
 
 function addVisualRail(x, z, width, length, material) {
