@@ -168,21 +168,8 @@ function buildTable(mats) {
         addRailSegment(0, sz * (HALF_LENGTH + 0.34), 8.0, CUSHION_THICKNESS,
             0, cushionVisual, mats.cushionMat);
     }
-    // Diagonal corner rails join the side and end cushions with matching
-    // visual and collision transforms.
-    for (const sx of [-1, 1]) {
-        for (const sz of [-1, 1]) {
-            const sideEnd = { x: sx * (HALF_WIDTH + 0.34), z: sz * 9.15 };
-            const endEnd = { x: sx * 4.0, z: sz * (HALF_LENGTH + 0.34) };
-            const dx = endEnd.x - sideEnd.x;
-            const dz = endEnd.z - sideEnd.z;
-            addRailSegment(
-                (sideEnd.x + endEnd.x) / 2, (sideEnd.z + endEnd.z) / 2,
-                CUSHION_THICKNESS, Math.hypot(dx, dz), Math.atan2(dx, dz),
-                cushionVisual, mats.cushionMat
-            );
-        }
-    }
+    // Corner openings remain clear; shaped cushion noses will be added
+    // against the same pocket outline in the next geometry pass.
 
     addVisualRail(0, -HALF_LENGTH - 0.77, TABLE_WIDTH + 1.55, 0.46, wood);
     addVisualRail(0, HALF_LENGTH + 0.77, TABLE_WIDTH + 1.55, 0.46, wood);
