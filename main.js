@@ -262,7 +262,7 @@ function createPockets(black) {
     ];
     for (const pocket of pockets) {
         const mouth = new THREE.Mesh(new THREE.CylinderGeometry(0.78, 0.72, 0.18, 40), black);
-        mouth.position.set(pocket.x, -0.18, pocket.z);
+        mouth.position.set(pocket.x, -0.065, pocket.z);
         scene.add(mouth);
         const throat = new THREE.Mesh(new THREE.CylinderGeometry(0.58, 0.66, 0.42, 40), black);
         throat.position.set(pocket.x, -0.31, pocket.z);
