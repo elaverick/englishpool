@@ -142,7 +142,6 @@ function buildTable(mats) {
     const wood = new THREE.MeshStandardMaterial({ color: 0x392316, roughness: 0.34 });
     const cushionVisual = new THREE.MeshStandardMaterial({ color: 0x24402d, roughness: 0.72 });
     const black = new THREE.MeshStandardMaterial({ color: 0x050606, roughness: 0.98 });
-    const brass = new THREE.MeshStandardMaterial({ color: 0xb18a4b, metalness: 0.65, roughness: 0.3 });
 
     const cabinet = new THREE.Mesh(
         new THREE.BoxGeometry(TABLE_WIDTH + 2, 0.8, TABLE_LENGTH + 2), wood
@@ -153,7 +152,7 @@ function buildTable(mats) {
 
     buildClothTiles(createBaizeMaterial());
     buildBedCollisionTiles(mats.tableMat);
-    createPockets(black, brass);
+    createPockets(black);
 
     // Split cushions leave unobstructed openings at the four corners and
     // the two side pockets. Their visual and Cannon shapes share transforms.
@@ -171,6 +170,8 @@ function buildTable(mats) {
         addRailSegment(0, sz * (HALF_LENGTH + 0.34), 8.5, CUSHION_THICKNESS,
             0, cushionVisual, mats.cushionMat);
     }
+
+    addCornerCushionNoses(cushionVisual, mats.cushionMat);
 
     // Top rails, wooden cabinet rails and brass sights.
     addVisualRail(0, -HALF_LENGTH - 0.77, TABLE_WIDTH + 1.55, 0.46, wood);
@@ -251,7 +252,7 @@ function buildBedCollisionTiles(tableMat) {
     }
 }
 
-function createPockets(black, brass) {
+function createPockets(black) {
     pockets = [
         { id: 'top-left', x: -4.78, z: -9.78 },
         { id: 'top-right', x: 4.78, z: -9.78 },
@@ -267,10 +268,6 @@ function createPockets(black, brass) {
         const throat = new THREE.Mesh(new THREE.CylinderGeometry(0.58, 0.66, 0.42, 40), black);
         throat.position.set(pocket.x, -0.31, pocket.z);
         scene.add(throat);
-        const lip = new THREE.Mesh(new THREE.TorusGeometry(0.67, 0.045, 8, 40), brass);
-        lip.rotation.x = Math.PI / 2;
-        lip.position.set(pocket.x, 0.018, pocket.z);
-        scene.add(lip);
     }
 }
 
@@ -284,6 +281,55 @@ function addRailSegment(x, z, width, length, angle, material, physicsMaterial) {
     body.addShape(new CANNON.Box(new CANNON.Vec3(width / 2, CUSHION_HEIGHT / 2, length / 2)));
     body.position.set(x, CUSHION_HEIGHT / 2, z);
     body.quaternion.setFromEuler(0, angle, 0);
+    world.addBody(body);
+}
+
+
+function addCornerCushionNoses(material, physicsMaterial) {
+    // Each triangular nose joins a side cushion end to an end cushion end.
+    // The tip faces the pocket, leaving the circular mouth unobstructed.
+    for (const sx of [-1, 1]) {
+        for (const sz of [-1, 1]) {
+            const points = [
+                [sx * 4.98, sz * 9.25],
+                [sx * 4.25, sz * 9.98],
+                [sx * 4.43, sz * 9.43]
+            ];
+            addCushionWedge(points, material, physicsMaterial);
+        }
+    }
+}
+
+function addCushionWedge(points, material, physicsMaterial) {
+    const shape = new THREE.Shape();
+    shape.moveTo(points[0][0], -points[0][1]);
+    shape.lineTo(points[1][0], -points[1][1]);
+    shape.lineTo(points[2][0], -points[2][1]);
+    shape.closePath();
+
+    const geometry = new THREE.ExtrudeGeometry(shape, {
+        depth: CUSHION_HEIGHT,
+        bevelEnabled: false,
+        curveSegments: 1
+    });
+    geometry.rotateX(-Math.PI / 2);
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.castShadow = mesh.receiveShadow = true;
+    scene.add(mesh);
+
+    // Matching triangular-prism collision volume.
+    const vertices = [];
+    for (const y of [0, CUSHION_HEIGHT]) {
+        for (const [x, z] of points) vertices.push(new CANNON.Vec3(x, y, z));
+    }
+    const body = new CANNON.Body({ mass: 0, material: physicsMaterial });
+    body.addShape(new CANNON.ConvexPolyhedron({
+        vertices,
+        faces: [
+            [0, 2, 1], [3, 4, 5],
+            [0, 1, 4, 3], [1, 2, 5, 4], [2, 0, 3, 5]
+        ]
+    }));
     world.addBody(body);
 }
 
